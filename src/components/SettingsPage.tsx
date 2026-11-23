@@ -215,6 +215,18 @@ export function SettingsPage({ settings, onSaveSettings, onPullFromGas }: Settin
                 />
               </div>
               <div>
+                <label htmlFor="watch-sheet-name" className="sub-label">
+                  ชื่อแท็บพื้นที่เฝ้าระวัง (แยกแท็บ)
+                </label>
+                <input
+                  id="watch-sheet-name"
+                  type="text"
+                  className="form-input"
+                  value={draft.watchSheetName ?? 'พื้นที่เฝ้าระวัง_IPB'}
+                  onChange={(e) => setDraft({ ...draft, watchSheetName: e.target.value })}
+                />
+              </div>
+              <div>
                 <label htmlFor="legacy-sheet-name" className="sub-label">
                   ชื่อชีตระบบเดิม (10 คอลัมน์)
                 </label>

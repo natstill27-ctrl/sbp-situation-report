@@ -10,8 +10,10 @@ import {
   Plus,
   RotateCcw,
   Send,
+  ShieldAlert,
   Sparkles,
   Trash2,
+  X,
 } from 'lucide-react';
 import type {
   AppSettings,
@@ -19,6 +21,9 @@ import type {
   MultiAreaDraftItem,
   MultiAreaParseResult,
   ParsedCoordinate,
+  WatchAlertLevel,
+  WatchAlertRecord,
+  WatchAreaTarget,
 } from '../types/incident';
 import { buildParsedCoordinate, parseCoordinateInput } from '../utils/coordinates';
 import {
@@ -32,8 +37,10 @@ import {
 import {
   extractMultiAreaPaper,
   extractPaperMetadata,
+  extractWatchAdvisory,
   formatThaiDateTime,
   getCurrentLocalDateTimeInput,
+  isWatchAlertActive,
 } from '../utils/thaiDate';
 import { formatIncidentForLine, formatIncidentForPaper } from '../utils/exportUtils';
 import { LeafletMap, type PreviewPin } from './LeafletMap';
@@ -45,6 +52,9 @@ interface IncidentFormPageProps {
   onSaveIncident: (record: IncidentRecord) => Promise<IncidentRecord>;
   onSaveIncidentBatch?: (records: IncidentRecord[]) => Promise<IncidentRecord[]>;
   lastSavedRecord: IncidentRecord | null;
+  watchAlerts?: WatchAlertRecord[];
+  onSaveWatchAlert?: (alert: WatchAlertRecord) => Promise<WatchAlertRecord>;
+  onDeleteWatchAlert?: (id: string) => Promise<void>;
 }
 
 const FORMAT_LABELS: Record<ParsedCoordinate['format'], string> = {
@@ -63,8 +73,11 @@ export function IncidentFormPage({
   onSaveIncident,
   onSaveIncidentBatch,
   lastSavedRecord,
+  watchAlerts = [],
+  onSaveWatchAlert,
+  onDeleteWatchAlert,
 }: IncidentFormPageProps) {
-  const [entryMode, setEntryMode] = useState<'single' | 'batch'>('single');
+  const [entryMode, setEntryMode] = useState<'single' | 'batch' | 'watch'>('single');
 
   const [coordinateRaw, setCoordinateRaw] = useState('');
   const [parsedCoord, setParsedCoord] = useState<ParsedCoordinate | null>(null);
@@ -104,6 +117,21 @@ export function IncidentFormPage({
     failedCount: number;
     totalEvents: number;
   } | null>(null);
+
+  // Watch Advisory / Threat Zone state
+  const todayDateDefault = useMemo(() => getCurrentLocalDateTimeInput().slice(0, 10), []);
+  const [watchRawText, setWatchRawText] = useState('');
+  const [watchReportedAt, setWatchReportedAt] = useState(todayDateDefault);
+  const [watchStart, setWatchStart] = useState(todayDateDefault);
+  const [watchEnd, setWatchEnd] = useState(todayDateDefault);
+  const [watchThreatType, setWatchThreatType] = useState('ความเคลื่อนไหวกลุ่มผู้ก่อเหตุรุนแรง');
+  const [watchAlertLevel, setWatchAlertLevel] = useState<WatchAlertLevel>('high');
+  const [watchAreas, setWatchAreas] = useState<WatchAreaTarget[]>([]);
+  const [watchAddProv, setWatchAddProv] = useState('นราธิวาส');
+  const [watchAddDist, setWatchAddDist] = useState('');
+  const [watchHints, setWatchHints] = useState<string[]>([]);
+  const [watchError, setWatchError] = useState('');
+  const [watchSuccessBanner, setWatchSuccessBanner] = useState('');
 
   const provinces = useMemo(() => getTargetProvinces(), []);
   const districts = useMemo(() => (province ? getDistrictsByProvince(province) : []), [province]);
@@ -755,6 +783,109 @@ export function IncidentFormPage({
     }
   };
 
+  const handleExtractWatch = () => {
+    setWatchError('');
+    setWatchSuccessBanner('');
+    if (!watchRawText.trim()) {
+      setWatchError('กรุณาวางข้อความข่าวกรอง / พื้นที่เฝ้าระวังก่อนกดสกัดข้อมูล');
+      return;
+    }
+    const parsed = extractWatchAdvisory(watchRawText);
+    if (parsed.reportedAt) setWatchReportedAt(parsed.reportedAt);
+    if (parsed.watchStart) setWatchStart(parsed.watchStart);
+    if (parsed.watchEnd) setWatchEnd(parsed.watchEnd);
+    setWatchThreatType(parsed.threatType);
+    setWatchAlertLevel(parsed.alertLevel);
+    setWatchAreas(parsed.areas);
+    setWatchHints(parsed.matchedHints);
+    if (parsed.areas.length === 0) {
+      setWatchError('ยังไม่พบชื่ออำเภอเฝ้าระวังในข้อความ กรุณาเลือกเพิ่มอำเภอด้วยตนเองด้านล่าง');
+    }
+  };
+
+  const watchAddDistrictOptions = useMemo(
+    () => (watchAddProv ? getDistrictsByProvince(watchAddProv) : []),
+    [watchAddProv]
+  );
+
+  const handleAddWatchArea = () => {
+    if (!watchAddProv || !watchAddDist) return;
+    const exists = watchAreas.some(
+      (a) => a.province === watchAddProv && a.district === watchAddDist
+    );
+    if (exists) return;
+    setWatchAreas((prev) => [...prev, { province: watchAddProv, district: watchAddDist }]);
+    setWatchError('');
+  };
+
+  const handleRemoveWatchArea = (prov: string, dist: string) => {
+    setWatchAreas((prev) => prev.filter((a) => !(a.province === prov && a.district === dist)));
+  };
+
+  const handleResetWatch = () => {
+    setWatchRawText('');
+    setWatchReportedAt(todayDateDefault);
+    setWatchStart(todayDateDefault);
+    setWatchEnd(todayDateDefault);
+    setWatchThreatType('ความเคลื่อนไหวกลุ่มผู้ก่อเหตุรุนแรง');
+    setWatchAlertLevel('high');
+    setWatchAreas([]);
+    setWatchHints([]);
+    setWatchError('');
+    setWatchSuccessBanner('');
+  };
+
+  const handleSubmitWatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setWatchError('');
+    setWatchSuccessBanner('');
+    if (!onSaveWatchAlert) return;
+
+    if (watchAreas.length === 0) {
+      setWatchError('กรุณาระบุพื้นที่อำเภอเฝ้าระวังอย่างน้อย 1 อำเภอ');
+      return;
+    }
+    if (!watchRawText.trim()) {
+      setWatchError('กรุณากรอกรายละเอียดข่าวแจ้งเตือน / พื้นที่เฝ้าระวัง');
+      return;
+    }
+    if (!reporter.trim()) {
+      setWatchError('กรุณาระบุชื่อผู้บันทึกข่าวกรอง');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const record: WatchAlertRecord = {
+      id: `WATCH-${new Date().getFullYear() + 543}-${String(Date.now()).slice(-6)}`,
+      reportedAt: watchReportedAt || todayDateDefault,
+      watchStart: watchStart || watchReportedAt || todayDateDefault,
+      watchEnd: watchEnd || watchStart || watchReportedAt || todayDateDefault,
+      areas: watchAreas,
+      threatType: watchThreatType.trim() || 'ความเคลื่อนไหวกลุ่มผู้ก่อเหตุรุนแรง',
+      alertLevel: watchAlertLevel,
+      details: watchRawText.trim(),
+      reporter: reporter.trim(),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      syncStatus: 'pending',
+    };
+
+    setSaving(true);
+    try {
+      const saved = await onSaveWatchAlert(record);
+      setWatchSuccessBanner(
+        saved.syncStatus === 'synced'
+          ? `บันทึกพื้นที่เฝ้าระวัง ${saved.id} (${saved.areas.length} อำเภอ) และซิงก์เข้าแท็บแยกแล้ว`
+          : `บันทึกพื้นที่เฝ้าระวัง ${saved.id} (${saved.areas.length} อำเภอ) ลงเครื่องเรียบร้อย (ไม่นับปนกับสถิติเหตุจริง)`
+      );
+      setWatchRawText('');
+      setWatchAreas([]);
+      setWatchHints([]);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleCopyText = async (mode: 'line' | 'paper') => {
     if (!lastSavedRecord) return;
     const text =
@@ -778,7 +909,9 @@ export function IncidentFormPage({
           <p className="section-subtitle">
             {entryMode === 'batch'
               ? 'โหมดหลายพื้นที่: วางรายงานสรุปเหตุการณ์หลายอำเภอ/หลายจุด สกัดอัตโนมัติ แก้ไขรายจุด และบันทึกเป็นชุดพร้อมกัน'
-              : 'ฟอร์มกระชับเน้นกรอกเร็ว: กรอกหรือวางพิกัดได้ทุกรูปแบบ ระบบจะปักหมุดและระบุ จว./อ./ต. ให้อัตโนมัติ'}
+              : entryMode === 'watch'
+                ? 'โหมดแจ้งเตือน & พื้นที่เฝ้าระวัง: บันทึกข่าวกรองเตรียมก่อเหตุ แสดงเขตระบายสีบนแผนที่โดยไม่นำไปบวกปนกับสถิติเหตุจริง'
+                : 'ฟอร์มกระชับเน้นกรอกเร็ว: กรอกหรือวางพิกัดได้ทุกรูปแบบ ระบบจะปักหมุดและระบุ จว./อ./ต. ให้อัตโนมัติ'}
           </p>
         </div>
         {editingIncident && (
@@ -811,6 +944,19 @@ export function IncidentFormPage({
             <span>
               บันทึกหลายพื้นที่ / รายงานรวม
               {batchItems.length > 0 ? ` (${batchItems.length} จุด • ${batchTotalEvents} เหตุการณ์)` : ''}
+            </span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={entryMode === 'watch'}
+            className={`entry-mode-tab ${entryMode === 'watch' ? 'active' : ''}`}
+            onClick={() => setEntryMode('watch')}
+          >
+            <ShieldAlert size={16} aria-hidden="true" />
+            <span>
+              ข่าวแจ้งเตือน / พื้นที่เฝ้าระวัง
+              {watchAlerts.length > 0 ? ` (${watchAlerts.length})` : ''}
             </span>
           </button>
         </div>
@@ -1145,7 +1291,7 @@ export function IncidentFormPage({
               </button>
             </div>
           </form>
-        ) : (
+        ) : entryMode === 'batch' ? (
           <form onSubmit={handleSubmitBatch} className="gov-card form-card" noValidate>
             <div className="form-group">
               <div className="label-row">
@@ -1565,6 +1711,287 @@ export function IncidentFormPage({
               </button>
             </div>
           </form>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <form onSubmit={handleSubmitWatch} className="gov-card form-card" noValidate>
+              <div className="form-group">
+                <div className="label-row">
+                  <label htmlFor="watch-raw-input" className="form-label required">
+                    1. วางข้อความข่าวกรองแจ้งเตือน / พื้นที่เฝ้าระวัง
+                  </label>
+                </div>
+                <textarea
+                  id="watch-raw-input"
+                  className="form-textarea"
+                  rows={5}
+                  value={watchRawText}
+                  onChange={(e) => setWatchRawText(e.target.value)}
+                  placeholder="วางข้อความข่าวกรองแจ้งเตือน เช่น เมื่อ ๕ มี.ค.๖๘ ปรากฏข่าวสารเตรียมก่อเหตุ ... พื้นที่เฝ้าระวัง อ.ยะรัง อ.สายบุรี จว.ปัตตานี ห้วงเฝ้าระวัง ๕ - ๑๖ มี.ค.๖๘"
+                />
+                <div className="form-actions" style={{ marginTop: '0.6rem' }}>
+                  <button type="button" className="btn btn-primary" onClick={handleExtractWatch}>
+                    <Sparkles size={16} aria-hidden="true" />
+                    <span>สกัดพื้นที่เฝ้าระวังและห้วงเวลาอัตโนมัติ</span>
+                  </button>
+                </div>
+              </div>
+
+              {watchHints.length > 0 && (
+                <div className="inline-alert info" aria-live="polite">
+                  <Sparkles size={15} aria-hidden="true" />
+                  <span>{watchHints.join(' • ')}</span>
+                </div>
+              )}
+
+              <div className="two-col-row">
+                <div className="form-group">
+                  <label htmlFor="watch-threat-input" className="form-label required">
+                    2. รูปแบบภัยคุกคาม
+                  </label>
+                  <input
+                    id="watch-threat-input"
+                    type="text"
+                    className="form-input"
+                    value={watchThreatType}
+                    onChange={(e) => setWatchThreatType(e.target.value)}
+                    placeholder="เช่น คาร์บอมบ์ / จยย.บอมบ์ / ลอบยิง"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="watch-level-select" className="form-label required">
+                    3. ระดับการแจ้งเตือน
+                  </label>
+                  <select
+                    id="watch-level-select"
+                    className="form-select"
+                    value={watchAlertLevel}
+                    onChange={(e) => setWatchAlertLevel(e.target.value as WatchAlertLevel)}
+                  >
+                    <option value="critical">เฝ้าระวังสูงสุด (สีแดง)</option>
+                    <option value="high">เฝ้าระวังสูง (สีส้ม)</option>
+                    <option value="medium">เฝ้าระวัง (สีเหลือง)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="area-select-grid">
+                <div className="form-group">
+                  <label htmlFor="watch-reported-at" className="sub-label">
+                    วันที่ข่าวกรอง
+                  </label>
+                  <input
+                    id="watch-reported-at"
+                    type="date"
+                    className="form-input"
+                    value={watchReportedAt}
+                    onChange={(e) => setWatchReportedAt(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="watch-start" className="sub-label">
+                    เริ่มเฝ้าระวัง
+                  </label>
+                  <input
+                    id="watch-start"
+                    type="date"
+                    className="form-input"
+                    value={watchStart}
+                    onChange={(e) => setWatchStart(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="watch-end" className="sub-label">
+                    สิ้นสุดเฝ้าระวัง
+                  </label>
+                  <input
+                    id="watch-end"
+                    type="date"
+                    className="form-input"
+                    value={watchEnd}
+                    onChange={(e) => setWatchEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <span className="form-label required">
+                  4. เขตอำเภอเฝ้าระวัง ({watchAreas.length} อำเภอ)
+                </span>
+                {watchAreas.length > 0 ? (
+                  <div className="watch-chip-list">
+                    {watchAreas.map((a) => (
+                      <span key={`${a.province}|${a.district}`} className="watch-chip">
+                        <span>
+                          อ.{a.district} จว.{a.province}
+                        </span>
+                        <button
+                          type="button"
+                          className="watch-chip-remove"
+                          aria-label={`ลบ อ.${a.district}`}
+                          onClick={() => handleRemoveWatchArea(a.province, a.district)}
+                        >
+                          <X size={13} aria-hidden="true" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="field-hint">ยังไม่ได้เลือกอำเภอเฝ้าระวัง (กดสกัดจากข้อความหรือเลือกเพิ่มด้านล่าง)</p>
+                )}
+
+                <div className="area-select-grid" style={{ marginTop: '0.55rem' }}>
+                  <select
+                    aria-label="เลือกจังหวัดที่จะเพิ่ม"
+                    className="form-select"
+                    value={watchAddProv}
+                    onChange={(e) => {
+                      setWatchAddProv(e.target.value);
+                      setWatchAddDist('');
+                    }}
+                  >
+                    {provinces.map((p) => (
+                      <option key={p} value={p}>
+                        {p === 'สงขลา' ? 'สงขลา (4 อำเภอ)' : p}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="เลือกอำเภอที่จะเพิ่ม"
+                    className="form-select"
+                    value={watchAddDist}
+                    onChange={(e) => setWatchAddDist(e.target.value)}
+                  >
+                    <option value="">-- เลือกอำเภอเพิ่ม --</option>
+                    {watchAddDistrictOptions.map((d) => (
+                      <option key={d} value={d}>
+                        อ.{d}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    onClick={handleAddWatchArea}
+                    disabled={!watchAddProv || !watchAddDist}
+                  >
+                    <Plus size={15} aria-hidden="true" />
+                    <span>เพิ่มอำเภอ</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="watch-reporter-input" className="form-label required">
+                  5. ผู้บันทึกข่าวแจ้งเตือน
+                </label>
+                <input
+                  id="watch-reporter-input"
+                  type="text"
+                  className="form-input"
+                  value={reporter}
+                  onChange={(e) => setReporter(e.target.value)}
+                  placeholder="ระบุชื่อ-นามสกุล / ตำแหน่ง หรือหน่วยงานผู้บันทึก"
+                  required
+                />
+              </div>
+
+              {watchError && (
+                <div className="inline-alert danger" role="alert">
+                  <AlertTriangle size={16} aria-hidden="true" />
+                  <span>{watchError}</span>
+                </div>
+              )}
+
+              {watchSuccessBanner && (
+                <div className="inline-alert info" aria-live="polite">
+                  <CheckCircle2 size={16} aria-hidden="true" />
+                  <span>{watchSuccessBanner}</span>
+                </div>
+              )}
+
+              <div className="form-actions">
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={saving || watchAreas.length === 0 || !onSaveWatchAlert}
+                >
+                  <ShieldAlert size={17} aria-hidden="true" />
+                  <span>
+                    {saving
+                      ? 'กำลังบันทึก...'
+                      : `บันทึกพื้นที่เฝ้าระวัง (${watchAreas.length} อำเภอ • แยกจากสถิติเหตุจริง)`}
+                  </span>
+                </button>
+                <button type="button" className="btn btn-outline" onClick={handleResetWatch}>
+                  <RotateCcw size={16} aria-hidden="true" />
+                  <span>ล้างข้อมูล</span>
+                </button>
+              </div>
+            </form>
+
+            {watchAlerts.length > 0 && (
+              <div className="gov-card">
+                <h3 className="card-title">
+                  รายการข่าวแจ้งเตือน / พื้นที่เฝ้าระวังที่บันทึกไว้ ({watchAlerts.length})
+                </h3>
+                <div className="watch-saved-list">
+                  {watchAlerts.map((w) => {
+                    const status = isWatchAlertActive(w);
+                    return (
+                      <div key={w.id} className={`watch-alert-card ${w.alertLevel}`}>
+                        <div className="batch-item-header">
+                          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <strong>{w.threatType}</strong>
+                            <span
+                              className={`badge ${
+                                status === 'active'
+                                  ? 'badge-danger'
+                                  : status === 'upcoming'
+                                    ? 'badge-warn'
+                                    : 'badge-info'
+                              }`}
+                            >
+                              {status === 'active'
+                                ? 'กำลังเฝ้าระวัง'
+                                : status === 'upcoming'
+                                  ? 'รอเริ่มห้วง'
+                                  : 'พ้นห้วงแล้ว'}
+                            </span>
+                            <span className="cell-sub">
+                              {formatThaiDateTime(w.watchStart, { includeTime: false })} –{' '}
+                              {formatThaiDateTime(w.watchEnd, { includeTime: false })}
+                            </span>
+                          </div>
+                          {onDeleteWatchAlert && (
+                            <button
+                              type="button"
+                              className="btn-xs btn-outline btn-danger-outline"
+                              onClick={() => {
+                                if (window.confirm(`ต้องการลบข่าวเฝ้าระวัง ${w.id} ใช่หรือไม่?`)) {
+                                  void onDeleteWatchAlert(w.id);
+                                }
+                              }}
+                              aria-label={`ลบ ${w.id}`}
+                            >
+                              <Trash2 size={13} aria-hidden="true" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="cell-area" style={{ marginBottom: 4 }}>
+                          พื้นที่ ({w.areas.length} อำเภอ):{' '}
+                          {w.areas.map((a) => `อ.${a.district}`).join(', ')}
+                        </div>
+                        <div className="details-clamp" title={w.details}>
+                          {w.details}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Right: Live Auto-Pin Map + Last Saved Briefing Card */}
@@ -1572,17 +1999,23 @@ export function IncidentFormPage({
           <div className="gov-card map-card">
             <div className="card-header-row">
               <div>
-                <h3 className="card-title">แผนที่ตรวจสอบพิกัดอัตโนมัติ</h3>
+                <h3 className="card-title">
+                  {entryMode === 'watch' ? 'แผนที่เขตอำเภอเฝ้าระวัง' : 'แผนที่ตรวจสอบพิกัดอัตโนมัติ'}
+                </h3>
                 <p className="card-subtitle">
-                  {entryMode === 'batch'
-                    ? activeBatchItem
-                      ? `กำลังปรับหมุดรายการ #${batchItems.findIndex((i) => i.id === activeBatchItem.id) + 1} (${
-                          activeBatchItem.district
-                            ? `อ.${activeBatchItem.district}`
-                            : activeBatchItem.province || 'รอระบุพื้นที่'
-                        }) • คลิกหมุดสีน้ำเงินเพื่อสลับรายการ`
-                      : 'กดสกัดจุดเกิดเหตุเพื่อแสดงหมุดทั้งหมดบนแผนที่'
-                    : 'คลิกบนแผนที่หรือลากหมุดสีแดงเพื่อปรับตำแหน่งจริง'}
+                  {entryMode === 'watch'
+                    ? watchAreas.length > 0
+                      ? `กำลังระบายสีเขตเฝ้าระวัง ${watchAreas.length} อำเภอ`
+                      : 'วางข้อความข่าวกรองหรือเลือกอำเภอเพื่อดูพื้นที่ระบายสีบนแผนที่'
+                    : entryMode === 'batch'
+                      ? activeBatchItem
+                        ? `กำลังปรับหมุดรายการ #${batchItems.findIndex((i) => i.id === activeBatchItem.id) + 1} (${
+                            activeBatchItem.district
+                              ? `อ.${activeBatchItem.district}`
+                              : activeBatchItem.province || 'รอระบุพื้นที่'
+                          }) • คลิกหมุดสีน้ำเงินเพื่อสลับรายการ`
+                        : 'กดสกัดจุดเกิดเหตุเพื่อแสดงหมุดทั้งหมดบนแผนที่'
+                      : 'คลิกบนแผนที่หรือลากหมุดสีแดงเพื่อปรับตำแหน่งจริง'}
                 </p>
               </div>
               <label className="checkbox-inline">
@@ -1596,13 +2029,26 @@ export function IncidentFormPage({
             </div>
             <LeafletMap
               mode="picker"
-              lat={entryMode === 'batch' ? (activeBatchItem?.lat ?? null) : (parsedCoord?.lat ?? null)}
-              lng={entryMode === 'batch' ? (activeBatchItem?.lng ?? null) : (parsedCoord?.lng ?? null)}
+              lat={
+                entryMode === 'watch'
+                  ? null
+                  : entryMode === 'batch'
+                    ? (activeBatchItem?.lat ?? null)
+                    : (parsedCoord?.lat ?? null)
+              }
+              lng={
+                entryMode === 'watch'
+                  ? null
+                  : entryMode === 'batch'
+                    ? (activeBatchItem?.lng ?? null)
+                    : (parsedCoord?.lng ?? null)
+              }
               onPickCoordinate={handlePickOnMap}
               previewMarkers={entryMode === 'batch' ? batchPreviewMarkers : undefined}
               onSelectPreviewMarker={
                 entryMode === 'batch' ? (id) => setActiveItemId(id) : undefined
               }
+              watchPreviewAreas={entryMode === 'watch' ? watchAreas : undefined}
               showBoundaries={showBoundaries}
               offlinePmtilesUrl={settings.offlinePmtilesUrl}
               height="410px"

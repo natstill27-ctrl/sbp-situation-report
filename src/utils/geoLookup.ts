@@ -1,5 +1,5 @@
 import rawBoundaries from '../data/southern_boundaries.json';
-import type { AreaMatch } from '../types/incident';
+import type { AreaMatch, WatchAreaTarget } from '../types/incident';
 
 export interface BoundaryGeometry {
   type: 'Polygon' | 'MultiPolygon';
@@ -171,18 +171,49 @@ export function getCenterOfArea(
   };
 }
 
+function normalizeAreaToken(value?: string): string {
+  return (value || '')
+    .replace(/^(จว\.|จ\.|จังหวัด|อ\.|อำเภอ|อ,|ต\.|ตำบล)\s*/, '')
+    .replace(/ฯ+$/, '')
+    .trim();
+}
+
+function resolveDistrictAlias(district: string, province: string): string {
+  const compact = district.replace(/\s*-\s*/g, '');
+  if (compact === 'สุไหงโกลก' || compact === 'โกลก') return 'สุไหงโก-ลก';
+  if (compact === 'สุคีริน') return 'สุคิริน';
+  if ((compact === 'เมือง' || district === 'เมือง') && province) {
+    return `เมือง${province}`;
+  }
+  return district;
+}
+
 export function matchAreaByThaiNames(
   provinceHint?: string,
   districtHint?: string,
   subdistrictHint?: string
 ): AreaMatch | null {
-  const clean = (s?: string) => (s || '').replace(/^(จว\.|จ\.|จังหวัด|อ\.|อำเภอ|ต\.|ตำบล)\s*/, '').trim();
-  const p = clean(provinceHint);
-  const d = clean(districtHint);
-  const s = clean(subdistrictHint);
+  const rawProv = normalizeAreaToken(provinceHint);
+  const provMap: Record<string, string> = {
+    'นธ.': 'นราธิวาส',
+    นธ: 'นราธิวาส',
+    'ปน.': 'ปัตตานี',
+    ปน: 'ปัตตานี',
+    'ยล.': 'ยะลา',
+    ยล: 'ยะลา',
+    'สข.': 'สงขลา',
+    สข: 'สงขลา',
+  };
+  const p = provMap[rawProv] || rawProv;
+  const rawDist = normalizeAreaToken(districtHint);
+  const d = resolveDistrictAlias(rawDist, p);
+  const s = normalizeAreaToken(subdistrictHint);
 
   const exact = BOUNDARIES.find(
-    (e) => (!p || e.p === p) && (!d || e.d === d) && (!s || e.s === s)
+    (e) =>
+      (!p || e.p === p) &&
+      (!d || e.d === d || e.d.replace(/-/g, '') === d.replace(/-/g, '')) &&
+      (!s || e.s === s)
   );
   if (exact) {
     return {
@@ -195,6 +226,59 @@ export function matchAreaByThaiNames(
     };
   }
   return null;
+}
+
+/**
+ * Build GeoJSON FeatureCollection of all boundary polygons matching a list of watch target areas.
+ */
+export function getWatchZonePolygonsGeoJson(areas: WatchAreaTarget[]): {
+  type: 'FeatureCollection';
+  features: Array<{
+    type: 'Feature';
+    properties: { province: string; district: string; subdistrict: string; code: string };
+    geometry: BoundaryGeometry;
+  }>;
+} {
+  if (!areas.length) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+
+  const seenCodes = new Set<string>();
+  const features: Array<{
+    type: 'Feature';
+    properties: { province: string; district: string; subdistrict: string; code: string };
+    geometry: BoundaryGeometry;
+  }> = [];
+
+  for (const area of areas) {
+    const p = normalizeAreaToken(area.province);
+    const d = resolveDistrictAlias(normalizeAreaToken(area.district), p);
+    const s = normalizeAreaToken(area.subdistrict);
+    if (!p && !d) continue;
+
+    for (const entry of BOUNDARIES) {
+      if (seenCodes.has(entry.c)) continue;
+      const provOk = !p || entry.p === p;
+      const distOk =
+        !d || entry.d === d || entry.d.replace(/-/g, '') === d.replace(/-/g, '');
+      const subOk = !s || entry.s === s;
+      if (provOk && distOk && subOk) {
+        seenCodes.add(entry.c);
+        features.push({
+          type: 'Feature',
+          properties: {
+            province: entry.p,
+            district: entry.d,
+            subdistrict: entry.s,
+            code: entry.c,
+          },
+          geometry: entry.g,
+        });
+      }
+    }
+  }
+
+  return { type: 'FeatureCollection', features };
 }
 
 export function getDistrictBoundariesGeoJson(): {

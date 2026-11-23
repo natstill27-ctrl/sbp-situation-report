@@ -115,9 +115,44 @@ export interface AppSettings {
   legacyDualWrite: boolean;
   legacySheetName: string;
   ipbSheetName: string;
+  watchSheetName?: string;
   legacyIncidentType: string;
   legacySendLine: boolean;
   autoPullOnLoad: boolean;
+}
+
+export type WatchAlertLevel = 'critical' | 'high' | 'medium';
+
+export interface WatchAreaTarget {
+  province: string;
+  district: string;
+  subdistrict?: string;
+}
+
+export interface WatchAlertRecord {
+  id: string;
+  reportedAt: string; // YYYY-MM-DD
+  watchStart: string; // YYYY-MM-DD
+  watchEnd: string; // YYYY-MM-DD
+  areas: WatchAreaTarget[];
+  threatType: string;
+  alertLevel: WatchAlertLevel;
+  details: string;
+  reporter: string;
+  createdAt: string;
+  updatedAt: string;
+  syncStatus: SyncStatus;
+  syncError?: string;
+}
+
+export interface WatchAdvisoryParseResult {
+  reportedAt?: string;
+  watchStart?: string;
+  watchEnd?: string;
+  areas: WatchAreaTarget[];
+  threatType: string;
+  alertLevel: WatchAlertLevel;
+  matchedHints: string[];
 }
 
 export interface PaperParseResult {

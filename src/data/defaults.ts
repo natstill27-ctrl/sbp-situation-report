@@ -9,6 +9,7 @@ export const DEFAULT_CATEGORIES: string[] = [
   'ตรวจยึด/จับกุม',
   'ก่อกวน/โปรยตะปูเรือใบ-เผายาง',
   'อุบัติเหตุ/ภัยพิบัติ',
+  'ข่าวสารความเคลื่อนไหว/เฝ้าระวัง',
   'อื่นๆ',
 ];
 
@@ -43,6 +44,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   legacyDualWrite: true,
   legacySheetName: 'ชีต1',
   ipbSheetName: 'สถานการณ์_3_จชต_IPB',
+  watchSheetName: 'พื้นที่เฝ้าระวัง_IPB',
   legacyIncidentType: 'สถานการณ์ 3 จชต.',
   legacySendLine: false,
   autoPullOnLoad: true,

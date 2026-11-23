@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { IncidentRecord } from '../types/incident';
+import type { IncidentRecord, WatchAlertRecord, WatchAreaTarget } from '../types/incident';
 import { getCategoryColor } from '../utils/categoryColors';
 import { getMilSymbolIconOptions } from '../utils/milSymbols';
 import { createPmtilesRasterLayer } from '../utils/pmtilesLayer';
 import { classifyIncidentSeverity } from '../utils/severity';
 import { formatThaiDateTime } from '../utils/thaiDate';
-import { getDistrictBoundariesGeoJson } from '../utils/geoLookup';
+import { getDistrictBoundariesGeoJson, getWatchZonePolygonsGeoJson } from '../utils/geoLookup';
 
 export type BasemapType = 'osm' | 'satellite' | 'topo';
 
@@ -84,6 +84,7 @@ interface PickerMapProps {
   onPickCoordinate: (lat: number, lng: number) => void;
   previewMarkers?: PreviewPin[];
   onSelectPreviewMarker?: (id: string) => void;
+  watchPreviewAreas?: WatchAreaTarget[];
   showBoundaries?: boolean;
   offlinePmtilesUrl?: string;
   height?: string;
@@ -98,6 +99,8 @@ interface OverviewMapProps {
   showBoundaries?: boolean;
   markerStyle?: 'pin' | 'milsymbol';
   colorMode?: 'category' | 'severity';
+  watchAlerts?: WatchAlertRecord[];
+  showWatchZones?: boolean;
   offlinePmtilesUrl?: string;
   height?: string;
 }
@@ -111,6 +114,7 @@ export function LeafletMap(props: LeafletMapProps) {
   const baseLayerRef = useRef<L.GridLayer | null>(null);
   const baseKeyRef = useRef<string>('');
   const boundaryLayerRef = useRef<L.GeoJSON | null>(null);
+  const watchLayerRef = useRef<L.LayerGroup | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const previewLayerRef = useRef<L.LayerGroup | null>(null);
   const pickerMarkerRef = useRef<L.Marker | null>(null);
@@ -156,6 +160,8 @@ export function LeafletMap(props: LeafletMapProps) {
       boundaryLayer.addTo(map);
     }
 
+    // Create watch polygon layer beneath clickable pins
+    const watchLayer = L.layerGroup().addTo(map);
     const previewLayer = L.layerGroup().addTo(map);
     const markerLayer = L.layerGroup().addTo(map);
 
@@ -167,6 +173,7 @@ export function LeafletMap(props: LeafletMapProps) {
 
     mapRef.current = map;
     boundaryLayerRef.current = boundaryLayer;
+    watchLayerRef.current = watchLayer;
     previewLayerRef.current = previewLayer;
     markerLayerRef.current = markerLayer;
 
@@ -189,6 +196,7 @@ export function LeafletMap(props: LeafletMapProps) {
       mapRef.current = null;
       baseLayerRef.current = null;
       boundaryLayerRef.current = null;
+      watchLayerRef.current = null;
       previewLayerRef.current = null;
       markerLayerRef.current = null;
       pickerMarkerRef.current = null;
@@ -285,6 +293,95 @@ export function LeafletMap(props: LeafletMapProps) {
       marker.addTo(previewLayer);
     }
   }, [props.mode, props.mode === 'picker' ? props.previewMarkers : null]);
+
+  // Watch Zone Polygon overlays (shaded targeted districts/subdistricts for threat advisories)
+  useEffect(() => {
+    const map = mapRef.current;
+    const watchLayer = watchLayerRef.current;
+    if (!map || !watchLayer) return;
+
+    watchLayer.clearLayers();
+
+    if (props.mode === 'picker') {
+      if (!props.watchPreviewAreas || props.watchPreviewAreas.length === 0) return;
+      const geo = getWatchZonePolygonsGeoJson(props.watchPreviewAreas);
+      if (geo.features.length === 0) return;
+
+      const poly = L.geoJSON(geo as GeoJSON.GeoJsonObject, {
+        style: {
+          color: '#dc2626',
+          weight: 2,
+          dashArray: '6 4',
+          fillColor: '#ef4444',
+          fillOpacity: 0.24,
+        },
+        onEachFeature: (feature, layer) => {
+          const p = feature.properties as { district?: string; subdistrict?: string; province?: string };
+          layer.bindTooltip(
+            escapeHtml(`ต.${p.subdistrict || '-'} อ.${p.district || '-'} จว.${p.province || '-'}`)
+          );
+        },
+      });
+      poly.addTo(watchLayer);
+      const bounds = poly.getBounds();
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [28, 28], maxZoom: 11 });
+      }
+      return;
+    }
+
+    if (props.showWatchZones === false || !props.watchAlerts || props.watchAlerts.length === 0) {
+      return;
+    }
+
+    const WATCH_COLORS: Record<'critical' | 'high' | 'medium', string> = {
+      critical: '#ef4444',
+      high: '#f97316',
+      medium: '#eab308',
+    };
+
+    for (const alert of props.watchAlerts) {
+      const geo = getWatchZonePolygonsGeoJson(alert.areas);
+      if (geo.features.length === 0) continue;
+      const strokeColor = WATCH_COLORS[alert.alertLevel] || '#f97316';
+      const polyLayer = L.geoJSON(geo as GeoJSON.GeoJsonObject, {
+        style: {
+          color: strokeColor,
+          weight: 2,
+          dashArray: '6 4',
+          opacity: 0.9,
+          fillColor: strokeColor,
+          fillOpacity: 0.2,
+        },
+      });
+      const areaNames = alert.areas
+        .map((a) => `${a.district ? `อ.${a.district}` : ''} ${a.province ? `จว.${a.province}` : ''}`.trim())
+        .join(', ');
+      const windowText =
+        alert.watchStart && alert.watchEnd && alert.watchStart !== alert.watchEnd
+          ? `${formatThaiDateTime(alert.watchStart, { includeTime: false })} – ${formatThaiDateTime(alert.watchEnd, { includeTime: false })}`
+          : formatThaiDateTime(alert.watchStart || alert.reportedAt, { includeTime: false });
+
+      const popupHtml = `
+        <div style="font-family:'Sarabun','Noto Sans Thai',sans-serif;min-width:220px;max-width:295px;line-height:1.45;">
+          <div style="font-weight:800;color:${strokeColor};margin-bottom:4px;">พื้นที่เฝ้าระวัง: ${escapeHtml(alert.threatType)}</div>
+          <div style="font-size:12px;color:#334155;"><strong>ห้วงเฝ้าระวัง:</strong> ${escapeHtml(windowText)}</div>
+          <div style="font-size:12px;color:#334155;margin-bottom:4px;"><strong>เขตเฝ้าระวัง (${alert.areas.length} พื้นที่):</strong> ${escapeHtml(areaNames)}</div>
+          <div style="font-size:12px;color:#0f172a;background:#fff7ed;padding:6px;border-radius:4px;border:1px solid #fed7aa;max-height:95px;overflow:auto;">
+            ${escapeHtml(alert.details)}
+          </div>
+          <div style="font-size:11px;color:#64748b;margin-top:4px;">ผู้บันทึก: ${escapeHtml(alert.reporter || '-')}</div>
+        </div>
+      `;
+      polyLayer.bindPopup(popupHtml);
+      polyLayer.addTo(watchLayer);
+    }
+  }, [
+    props.mode,
+    props.mode === 'overview' ? props.watchAlerts : null,
+    props.mode === 'overview' ? props.showWatchZones : null,
+    props.mode === 'picker' ? props.watchPreviewAreas : null,
+  ]);
 
   // Overview markers sync
   useEffect(() => {

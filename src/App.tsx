@@ -3,17 +3,26 @@ import { GovFooter } from './components/GovFooter';
 import { GovHeader, type ActiveTab } from './components/GovHeader';
 import { IncidentFormPage } from './components/IncidentFormPage';
 import { DEFAULT_SETTINGS, buildSampleIncidents } from './data/defaults';
-import type { AppSettings, IncidentRecord } from './types/incident';
+import type { AppSettings, IncidentRecord, WatchAlertRecord } from './types/incident';
 import { decodeConfigHash } from './utils/configShare';
-import { pullIncidentsFromGas, sendIncidentToGas, type GasPullResult } from './utils/gasSync';
+import {
+  pullIncidentsFromGas,
+  sendIncidentToGas,
+  sendWatchAlertToGas,
+  type GasPullResult,
+} from './utils/gasSync';
 import {
   clearAllIncidents,
   deleteIncident,
+  deleteWatchAlert,
   loadIncidents,
   loadSettings,
+  loadWatchAlerts,
   saveIncident,
   saveIncidentsBatch,
   saveSettings,
+  saveWatchAlert,
+  saveWatchAlertsBatch,
 } from './utils/storage';
 
 const IpbDashboardPage = lazy(() =>
@@ -35,6 +44,7 @@ function formatClockHHmm(date: Date): string {
 export function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('entry');
   const [incidents, setIncidents] = useState<IncidentRecord[]>([]);
+  const [watchAlerts, setWatchAlerts] = useState<WatchAlertRecord[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
 
@@ -49,8 +59,9 @@ export function App() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const [loadedIncidents, loadedSettings] = await Promise.all([
+      const [loadedIncidents, loadedWatchAlerts, loadedSettings] = await Promise.all([
         loadIncidents(),
+        loadWatchAlerts(),
         loadSettings(),
       ]);
       if (!active) return;
@@ -78,6 +89,7 @@ export function App() {
       }
 
       setIncidents(loadedIncidents);
+      setWatchAlerts(loadedWatchAlerts);
       setSettings(effectiveSettings);
       setLoading(false);
 
@@ -89,6 +101,11 @@ export function App() {
             await saveIncidentsBatch(pullRes.records);
             const reloaded = await loadIncidents();
             if (active) setIncidents(reloaded);
+          }
+          if (pullRes.watchAlerts && pullRes.watchAlerts.length > 0) {
+            await saveWatchAlertsBatch(pullRes.watchAlerts);
+            const reloadedAlerts = await loadWatchAlerts();
+            if (active) setWatchAlerts(reloadedAlerts);
           }
           if (active) {
             setLastPulledAt(formatClockHHmm(new Date()));
@@ -324,6 +341,30 @@ export function App() {
     setSettings(next);
   };
 
+  const handleSaveWatchAlert = async (alert: WatchAlertRecord): Promise<WatchAlertRecord> => {
+    let savedRecord: WatchAlertRecord = { ...alert };
+    await saveWatchAlert(savedRecord);
+    setWatchAlerts(await loadWatchAlerts());
+
+    if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
+      const syncRes = await sendWatchAlertToGas(savedRecord, settings);
+      savedRecord = {
+        ...savedRecord,
+        syncStatus: syncRes.ok ? 'synced' : 'failed',
+        syncError: syncRes.ok ? undefined : syncRes.message,
+      };
+      await saveWatchAlert(savedRecord);
+      setWatchAlerts(await loadWatchAlerts());
+    }
+
+    return savedRecord;
+  };
+
+  const handleDeleteWatchAlert = async (id: string) => {
+    await deleteWatchAlert(id);
+    setWatchAlerts((prev) => prev.filter((item) => item.id !== id));
+  };
+
   const handlePullFromGas = async (overrideSettings?: AppSettings): Promise<GasPullResult> => {
     const activeSettings = overrideSettings || settings;
     const res = await pullIncidentsFromGas(activeSettings);
@@ -332,6 +373,10 @@ export function App() {
         await saveIncidentsBatch(res.records);
         const reloaded = await loadIncidents();
         setIncidents(reloaded);
+      }
+      if (res.watchAlerts && res.watchAlerts.length > 0) {
+        await saveWatchAlertsBatch(res.watchAlerts);
+        setWatchAlerts(await loadWatchAlerts());
       }
       setLastPulledAt(formatClockHHmm(new Date()));
     }
@@ -390,12 +435,16 @@ export function App() {
                   onSaveIncident={handleSaveIncident}
                   onSaveIncidentBatch={handleSaveIncidentBatch}
                   lastSavedRecord={lastSavedRecord}
+                  watchAlerts={watchAlerts}
+                  onSaveWatchAlert={handleSaveWatchAlert}
+                  onDeleteWatchAlert={handleDeleteWatchAlert}
                 />
               )}
 
               {activeTab === 'ipb' && (
                 <IpbDashboardPage
                   incidents={incidents}
+                  watchAlerts={watchAlerts}
                   categories={settings.categories}
                   settings={settings}
                   lastPulledAt={lastPulledAt}

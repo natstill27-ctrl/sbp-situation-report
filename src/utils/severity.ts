@@ -39,6 +39,9 @@ export function classifyIncidentSeverity(category: string, details = ''): Severi
   if (/วางเพลิง|ลอบเผา/.test(cat)) {
     return SEVERITY_LEVELS[1];
   }
+  if (/ข่าวสาร|ความเคลื่อนไหว|เฝ้าระวัง/.test(cat)) {
+    return SEVERITY_LEVELS[2];
+  }
   if (/ก่อกวน|โปรยตะปู|ตะปูเรือใบ|เผายาง/.test(cat)) {
     if (/เสียชีวิต/.test(cleanedDetails)) return SEVERITY_LEVELS[0];
     if (/บาดเจ็บ/.test(cleanedDetails)) return SEVERITY_LEVELS[1];

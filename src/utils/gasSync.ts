@@ -1,7 +1,13 @@
-import type { AppSettings, IncidentRecord } from '../types/incident';
+import type {
+  AppSettings,
+  IncidentRecord,
+  WatchAlertLevel,
+  WatchAlertRecord,
+  WatchAreaTarget,
+} from '../types/incident';
 import { buildParsedCoordinate, parseCoordinateInput } from './coordinates';
 import { lookupAreaByLatLng, matchAreaByThaiNames } from './geoLookup';
-import { extractPaperMetadata, formatThaiDateTime } from './thaiDate';
+import { extractPaperMetadata, extractWatchAdvisory, formatThaiDateTime } from './thaiDate';
 
 export interface GasSyncResult {
   ok: boolean;
@@ -13,6 +19,7 @@ export interface GasPullResult {
   ok: boolean;
   message: string;
   records: IncidentRecord[];
+  watchAlerts?: WatchAlertRecord[];
   ipbCount: number;
   legacyCount: number;
 }
@@ -165,7 +172,12 @@ function extractBracketMeta(
 export function parsePulledGasResponse(
   raw: unknown,
   settings: AppSettings
-): { records: IncidentRecord[]; ipbCount: number; legacyCount: number } {
+): {
+  records: IncidentRecord[];
+  watchAlerts: WatchAlertRecord[];
+  ipbCount: number;
+  legacyCount: number;
+} {
   const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const ipbRows = Array.isArray(obj.ipbRows) ? (obj.ipbRows as Array<Record<string, unknown>>) : [];
   const legacyRows = Array.isArray(obj.legacyRows) ? (obj.legacyRows as RawLegacyRow[]) : [];
@@ -373,26 +385,98 @@ export function parsePulledGasResponse(
     return tB - tA;
   });
 
+  const watchRows = Array.isArray(obj.watchRows)
+    ? (obj.watchRows as Array<Record<string, unknown>>)
+    : [];
+  const watchAlerts: WatchAlertRecord[] = watchRows.map((row, idx) => {
+    const id = String(row.id ?? '').trim() || `WATCH-GAS-${idx + 1}`;
+    const reportedAt = normalizeOccurredAt(row.reportedAt).slice(0, 10);
+    const watchStart = normalizeOccurredAt(row.watchStart).slice(0, 10) || reportedAt;
+    const watchEnd = normalizeOccurredAt(row.watchEnd).slice(0, 10) || watchStart;
+    const alertLevelRaw = String(row.alertLevel ?? '').trim();
+    const alertLevel: WatchAlertLevel =
+      alertLevelRaw === 'critical' || alertLevelRaw === 'high' || alertLevelRaw === 'medium'
+        ? alertLevelRaw
+        : 'medium';
+    const threatType = String(row.threatType ?? '').trim() || 'ความเคลื่อนไหวกลุ่มผู้ก่อเหตุรุนแรง';
+    const details = String(row.details ?? '').trim();
+    const reporter = String(row.reporter ?? '').trim() || '-';
+    const createdAt = String(row.createdAt ?? '').trim() || new Date().toISOString();
+
+    let areas: WatchAreaTarget[] = [];
+    if (typeof row.areasJson === 'string' && row.areasJson.trim().startsWith('[')) {
+      try {
+        const parsedAreas = JSON.parse(row.areasJson) as WatchAreaTarget[];
+        if (Array.isArray(parsedAreas)) {
+          areas = parsedAreas.filter((a) => a && (a.province || a.district));
+        }
+      } catch {
+        areas = [];
+      }
+    }
+    if (areas.length === 0) {
+      const fallbackText = String(row.areasText ?? details);
+      areas = extractWatchAdvisory(fallbackText).areas;
+    }
+
+    return {
+      id,
+      reportedAt,
+      watchStart,
+      watchEnd,
+      areas,
+      threatType,
+      alertLevel,
+      details,
+      reporter,
+      createdAt,
+      updatedAt: createdAt,
+      syncStatus: 'synced',
+    };
+  });
+
   return {
     records: combined,
+    watchAlerts,
     ipbCount: ipbRecords.length,
     legacyCount: legacyRecords.length,
   };
 }
 
-/**
- * Send record to Google Apps Script Web App (/exec) using text/plain to avoid CORS preflight failures.
- */
-export async function sendIncidentToGas(
-  record: IncidentRecord,
+export function buildWatchAlertGasPayload(
+  alert: WatchAlertRecord,
   settings: AppSettings
-): Promise<GasSyncResult> {
-  const url = settings.gasWebhookUrl.trim();
-  if (!url) {
-    return { ok: false, message: 'ยังไม่ได้ตั้งค่า Webhook URL ของ Google Apps Script' };
-  }
+): Record<string, unknown> {
+  const areasText = alert.areas
+    .map((a) =>
+      `${a.subdistrict ? `ต.${a.subdistrict} ` : ''}${a.district ? `อ.${a.district} ` : ''}${
+        a.province ? `จว.${a.province}` : ''
+      }`.trim()
+    )
+    .filter(Boolean)
+    .join(', ');
 
-  const payload = buildGasPayload(record, settings);
+  return {
+    action: 'createOrUpdateWatchAlert',
+    watchSheetName: (settings.watchSheetName || 'พื้นที่เฝ้าระวัง_IPB').trim(),
+    id: alert.id,
+    reportedAt: alert.reportedAt,
+    watchStart: alert.watchStart,
+    watchEnd: alert.watchEnd,
+    alertLevel: alert.alertLevel,
+    threatType: alert.threatType,
+    areasText,
+    areasJson: JSON.stringify(alert.areas),
+    details: alert.details,
+    reporter: alert.reporter,
+    createdAt: alert.createdAt,
+  };
+}
+
+async function postGasPayload(
+  url: string,
+  payload: Record<string, unknown>
+): Promise<GasSyncResult> {
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -442,6 +526,34 @@ export async function sendIncidentToGas(
 }
 
 /**
+ * Send record to Google Apps Script Web App (/exec) using text/plain to avoid CORS preflight failures.
+ */
+export async function sendIncidentToGas(
+  record: IncidentRecord,
+  settings: AppSettings
+): Promise<GasSyncResult> {
+  const url = settings.gasWebhookUrl.trim();
+  if (!url) {
+    return { ok: false, message: 'ยังไม่ได้ตั้งค่า Webhook URL ของ Google Apps Script' };
+  }
+  return postGasPayload(url, buildGasPayload(record, settings));
+}
+
+/**
+ * Send a watch/advisory record to a dedicated Google Sheets tab (`พื้นที่เฝ้าระวัง_IPB`).
+ */
+export async function sendWatchAlertToGas(
+  alert: WatchAlertRecord,
+  settings: AppSettings
+): Promise<GasSyncResult> {
+  const url = settings.gasWebhookUrl.trim();
+  if (!url) {
+    return { ok: false, message: 'ยังไม่ได้ตั้งค่า Webhook URL ของ Google Apps Script' };
+  }
+  return postGasPayload(url, buildWatchAlertGasPayload(alert, settings));
+}
+
+/**
  * Pull historical SBP rows from Google Apps Script (?page=json&scope=sbp).
  */
 export async function pullIncidentsFromGas(settings: AppSettings): Promise<GasPullResult> {
@@ -451,6 +563,7 @@ export async function pullIncidentsFromGas(settings: AppSettings): Promise<GasPu
       ok: false,
       message: 'ยังไม่ได้ตั้งค่า Web App URL ของ Google Apps Script',
       records: [],
+      watchAlerts: [],
       ipbCount: 0,
       legacyCount: 0,
     };
@@ -466,6 +579,7 @@ export async function pullIncidentsFromGas(settings: AppSettings): Promise<GasPu
         ok: false,
         message: `ดึงข้อมูลไม่สำเร็จ (HTTP ${response.status})`,
         records: [],
+        watchAlerts: [],
         ipbCount: 0,
         legacyCount: 0,
       };
@@ -480,6 +594,7 @@ export async function pullIncidentsFromGas(settings: AppSettings): Promise<GasPu
         message:
           'ปลายทางส่งกลับมาเป็น HTML ไม่ใช่ JSON — กรุณาเพิ่มเงื่อนไข if (page == "json") return exportSbpJson(e); ใน doGet(e) ของ GAS และ Deploy เวอร์ชันใหม่',
         records: [],
+        watchAlerts: [],
         ipbCount: 0,
         legacyCount: 0,
       };
@@ -490,16 +605,23 @@ export async function pullIncidentsFromGas(settings: AppSettings): Promise<GasPu
         ok: false,
         message: String(parsed.error || parsed.message || 'GAS ส่งกลับข้อผิดพลาด'),
         records: [],
+        watchAlerts: [],
         ipbCount: 0,
         legacyCount: 0,
       };
     }
 
-    const { records, ipbCount, legacyCount } = parsePulledGasResponse(parsed, settings);
+    const { records, watchAlerts, ipbCount, legacyCount } = parsePulledGasResponse(
+      parsed,
+      settings
+    );
+    const watchMsg =
+      watchAlerts.length > 0 ? ` และพื้นที่เฝ้าระวัง ${watchAlerts.length} รายการ` : '';
     return {
       ok: true,
-      message: `ดึงข้อมูลสำเร็จ: แท็บ IPB ${ipbCount} รายการ และจากชีตเดิม ${legacyCount} รายการ (รวม ${records.length} รายการ)`,
+      message: `ดึงข้อมูลสำเร็จ: แท็บ IPB ${ipbCount} รายการ และจากชีตเดิม ${legacyCount} รายการ${watchMsg} (รวม ${records.length} เหตุการณ์)`,
       records,
+      watchAlerts,
       ipbCount,
       legacyCount,
     };
@@ -511,6 +633,7 @@ export async function pullIncidentsFromGas(settings: AppSettings): Promise<GasPu
           ? `ไม่สามารถเชื่อมต่อเพื่อดึงข้อมูลได้: ${err.message}`
           : 'ไม่สามารถเชื่อมต่อ Google Apps Script ได้',
       records: [],
+      watchAlerts: [],
       ipbCount: 0,
       legacyCount: 0,
     };
@@ -562,6 +685,7 @@ export async function testGasConnection(settings: AppSettings): Promise<GasSyncR
 export function generateGasReceiverCode(settings: AppSettings): string {
   const m = settings.fieldMapping;
   const ipbSheetName = (settings.ipbSheetName || 'สถานการณ์_3_จชต_IPB').trim();
+  const watchSheetName = (settings.watchSheetName || 'พื้นที่เฝ้าระวัง_IPB').trim();
   const legacySheetName = (settings.legacySheetName || 'ชีต1').trim();
   const legacyIncidentType = (settings.legacyIncidentType || 'สถานการณ์ 3 จชต.').trim();
 
@@ -603,6 +727,7 @@ export function generateGasReceiverCode(settings: AppSettings): string {
  */
 
 var SBP_IPB_SHEET_NAME = ${JSON.stringify(ipbSheetName)};
+var SBP_WATCH_SHEET_NAME = ${JSON.stringify(watchSheetName)};
 var SBP_LEGACY_SHEET_NAME = ${JSON.stringify(legacySheetName)};
 var SBP_LEGACY_TYPE = ${JSON.stringify(legacyIncidentType)};
 
@@ -624,6 +749,49 @@ function getSbpSpreadsheet_() {
   return SpreadsheetApp.getActiveSpreadsheet();
 }
 
+function handleUpsertWatchAlert_(data, ss) {
+  var watchName = String(data.watchSheetName || SBP_WATCH_SHEET_NAME);
+  var sheet = ss.getSheetByName(watchName) || ss.insertSheet(watchName);
+  var headers = ['id', 'reportedAt', 'watchStart', 'watchEnd', 'alertLevel', 'threatType', 'areasText', 'areasJson', 'details', 'reporter', 'createdAt'];
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(headers);
+  }
+  var rowId = String(data.id || '');
+  var values = [
+    rowId,
+    data.reportedAt || '',
+    data.watchStart || '',
+    data.watchEnd || '',
+    data.alertLevel || 'medium',
+    data.threatType || '',
+    data.areasText || '',
+    data.areasJson || '[]',
+    data.details || '',
+    data.reporter || '-',
+    data.createdAt || new Date().toISOString()
+  ];
+  var targetRow = -1;
+  if (rowId && sheet.getLastRow() > 1) {
+    var ids = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) === rowId) {
+        targetRow = i + 2;
+        break;
+      }
+    }
+  }
+  if (targetRow > 0) {
+    sheet.getRange(targetRow, 1, 1, values.length).setValues([values]);
+  } else {
+    sheet.appendRow(values);
+  }
+  return sbpJsonResponse_({
+    ok: true,
+    message: 'บันทึกพื้นที่เฝ้าระวังลงแท็บ ' + watchName + ' สำเร็จ',
+    id: rowId
+  });
+}
+
 function doPost(e) {
   try {
     var tz = getSbpTimezone_();
@@ -635,9 +803,14 @@ function doPost(e) {
         ok: true,
         message: 'เชื่อมต่อกับ Google Apps Script สำเร็จ',
         ipbSheet: SBP_IPB_SHEET_NAME,
+        watchSheet: SBP_WATCH_SHEET_NAME,
         legacySheet: SBP_LEGACY_SHEET_NAME,
         timestamp: new Date().toISOString()
       });
+    }
+
+    if (data.action === 'createOrUpdateWatchAlert') {
+      return handleUpsertWatchAlert_(data, getSbpSpreadsheet_());
     }
 
     var todayText = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
@@ -822,10 +995,32 @@ function exportSbpJson(e) {
       }
     }
 
+    var watchRows = [];
+    var watchSheet = ss.getSheetByName(SBP_WATCH_SHEET_NAME);
+    if (watchSheet && watchSheet.getLastRow() > 1) {
+      var watchValues = watchSheet.getDataRange().getValues();
+      var watchHeaders = watchValues.shift();
+      watchValues.forEach(function (r) {
+        var wObj = {};
+        watchHeaders.forEach(function (h, idx) {
+          var key = String(h || '').trim();
+          if (!key) return;
+          var val = r[idx];
+          if (val instanceof Date && !isNaN(val.getTime())) {
+            wObj[key] = Utilities.formatDate(val, tz, 'yyyy-MM-dd');
+          } else {
+            wObj[key] = val;
+          }
+        });
+        watchRows.push(wObj);
+      });
+    }
+
     return sbpJsonResponse_({
       ok: true,
       ipbRows: ipbRows,
       legacyRows: legacyRows,
+      watchRows: watchRows,
       generatedAt: new Date().toISOString()
     });
   } catch (err) {

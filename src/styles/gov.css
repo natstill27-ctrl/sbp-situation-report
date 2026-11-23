@@ -2240,3 +2240,109 @@ html.high-contrast .quick-edit-box {
   background: #111111;
   border-color: #ffff00;
 }
+
+/* Watch Advisory & Threat Zone Module */
+.watch-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.watch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid rgba(185, 28, 28, 0.35);
+}
+
+.watch-chip-remove {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.watch-saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.watch-alert-card {
+  border: 1px solid var(--border-light);
+  border-left: 4px solid var(--warn);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: var(--bg-subtle);
+}
+
+.watch-alert-card.critical {
+  border-left-color: var(--danger);
+}
+
+.c2-watch-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.65rem 0.9rem;
+  margin-bottom: 0.8rem;
+  border-radius: 6px;
+  border: 1.5px solid #dc2626;
+  background: rgba(185, 28, 28, 0.2);
+  color: #fecaca;
+}
+
+.c2-light .c2-watch-banner {
+  background: #fef2f2;
+  color: #7f1d1d;
+}
+
+.c2-watch-banner-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.c2-watch-banner-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.c2-watch-pill {
+  display: inline-block;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.22);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+}
+
+.c2-light .c2-watch-pill {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+@media print {
+  .c2-watch-banner {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border-color: #b91c1c !important;
+  }
+}

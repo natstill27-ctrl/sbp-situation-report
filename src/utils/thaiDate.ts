@@ -2,6 +2,10 @@ import type {
   MultiAreaDraftItem,
   MultiAreaParseResult,
   PaperParseResult,
+  WatchAdvisoryParseResult,
+  WatchAlertLevel,
+  WatchAlertRecord,
+  WatchAreaTarget,
 } from '../types/incident';
 import { parseCoordinateInput } from './coordinates';
 import { getCenterOfArea, matchAreaByThaiNames } from './geoLookup';
@@ -109,6 +113,10 @@ function matchThaiMonth(token: string): number | null {
   return null;
 }
 
+const THAI_MONTH_TOKEN = `(?:${[...THAI_MONTHS_LONG, ...THAI_MONTHS_SHORT]
+  .map((m) => m.replace(/\./g, '\\.?'))
+  .join('|')})`;
+
 /**
  * Extract date, administrative area hints, and event category hints from a Thai Paper report paragraph.
  * Example supported: "เมื่อ ๙ พ.ย.๖๙ ... ต.แม่หวาด อ.ธารโต จว.ยะลา ... เกิดการปะทะ"
@@ -118,10 +126,7 @@ export function extractPaperMetadata(rawText: string, availableCategories: strin
   const result: PaperParseResult = { matchedHints: [] };
 
   // 1. Extract Thai date e.g. "9 พ.ย.69" or "9 พฤศจิกายน 2569"
-  const monthNamesPattern = [...THAI_MONTHS_LONG, ...THAI_MONTHS_SHORT]
-    .map((m) => m.replace(/\./g, '\\.?'))
-    .join('|');
-  const dateRegex = new RegExp(`(?:^|\\s)(\\d{1,2})\\s*(${monthNamesPattern})\\s*(\\d{2,4})`, 'i');
+  const dateRegex = new RegExp(`(?:^|\\s)(\\d{1,2})\\s*(${THAI_MONTH_TOKEN})\\s*(\\d{2,4})`, 'i');
   const dateMatch = normalized.match(dateRegex);
   if (dateMatch) {
     const day = Number(dateMatch[1]);
@@ -196,7 +201,20 @@ export function extractPaperMetadata(rawText: string, availableCategories: strin
   return result;
 }
 
+export const WATCH_ADVISORY_CATEGORY = 'ข่าวสารความเคลื่อนไหว/เฝ้าระวัง';
+
+export function isWatchAdvisoryCategory(category: string): boolean {
+  return (
+    category === WATCH_ADVISORY_CATEGORY ||
+    /ข่าวสาร|ความเคลื่อนไหว|เฝ้าระวัง/.test(category || '')
+  );
+}
+
 const KEYWORD_CATEGORY_MAP: Array<[RegExp, string[]]> = [
+  [
+    /ปรากฏข่าวสาร|ปรากฎข่าวสาร|ข่าวสารความเคลื่อนไหว|พบความเคลื่อนไหว|พื้นที่เฝ้าระวัง|พื้นที่เพ่งเล็ง|ห้วงเฝ้าระวัง|เตรียมการก่อเหตุ|เตรียมก่อเหตุ/,
+    [WATCH_ADVISORY_CATEGORY],
+  ],
   [
     /ปะทะ|ยิงปะทะ|ปิดล้อมตรวจค้น|ปิดล้อม-ตรวจค้น|ปิดล้อมและตรวจค้น|ยิงตอบโต้|พิสูจน์ทราบแหล่งพักพิง/,
     ['ปะทะ/ปิดล้อมตรวจค้น', 'ปะทะ'],
@@ -497,5 +515,156 @@ export function extractMultiAreaPaper(
     items,
     matchedHints,
     warnings,
+  };
+}
+
+/** Determine whether a watch alert is currently active, upcoming, or expired relative to `todayYmd`. */
+export function isWatchAlertActive(
+  alert: Pick<WatchAlertRecord, 'watchStart' | 'watchEnd'>,
+  todayYmd?: string
+): 'active' | 'upcoming' | 'expired' {
+  const today = todayYmd || getCurrentLocalDateTimeInput().slice(0, 10);
+  const start = (alert.watchStart || alert.watchEnd || '').slice(0, 10);
+  const end = (alert.watchEnd || alert.watchStart || '').slice(0, 10);
+  if (start && today < start) return 'upcoming';
+  if (end && today > end) return 'expired';
+  return 'active';
+}
+
+/**
+ * Parse Thai intelligence watch advisories containing multi-district target lists,
+ * watch date windows (same-month or cross-month), and threat type.
+ */
+export function extractWatchAdvisory(rawText: string): WatchAdvisoryParseResult {
+  const matchedHints: string[] = [];
+  const normalized = fromThaiDigits(rawText).replace(/\r\n?/g, '\n').replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return {
+      areas: [],
+      threatType: 'ความเคลื่อนไหวกลุ่มผู้ก่อเหตุรุนแรง',
+      alertLevel: 'medium',
+      matchedHints,
+    };
+  }
+
+  // 1. Report date ("เมื่อ ...")
+  const headerMeta = extractPaperMetadata(normalized, []);
+  const reportedAt = headerMeta.occurredAt?.slice(0, 10);
+  if (reportedAt) {
+    matchedHints.push(`วันที่ข่าว: ${formatThaiDateTime(reportedAt, { includeTime: false })}`);
+  }
+
+  // 2. Watch window ("ห้วงเฝ้าระวัง [ตั้งแต่] 5 - 16 มี.ค.68" or "25 ก.พ. - 10 มี.ค.68")
+  let watchStart: string | undefined;
+  let watchEnd: string | undefined;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const windowPattern = new RegExp(
+    `(?:ห้วงเฝ้าระวัง(?:ตั้งแต่)?|ห้วงเวลา|ระยะเวลา)\\s*(\\d{1,2})(?:\\s*(${THAI_MONTH_TOKEN})(?:\\s*(\\d{2,4}))?)?\\s*(?:-|–|ถึง)\\s*(\\d{1,2})\\s*(${THAI_MONTH_TOKEN})\\s*,?\\s*(\\d{2,4})`
+  );
+  const windowMatch = normalized.match(windowPattern);
+  if (windowMatch) {
+    const endDay = Number(windowMatch[4]);
+    const endMonth = matchThaiMonth(windowMatch[5]);
+    let endBe = Number(windowMatch[6]);
+    if (endBe < 100) endBe += 2500;
+    const endAd = endBe - 543;
+
+    const startDay = Number(windowMatch[1]);
+    const startMonth = windowMatch[2] ? matchThaiMonth(windowMatch[2]) : endMonth;
+    let startAd = endAd;
+    if (windowMatch[3]) {
+      let sBe = Number(windowMatch[3]);
+      if (sBe < 100) sBe += 2500;
+      startAd = sBe - 543;
+    } else if (startMonth && endMonth && startMonth > endMonth) {
+      startAd = endAd - 1;
+    }
+
+    if (startMonth && endMonth && startDay >= 1 && startDay <= 31 && endDay >= 1 && endDay <= 31) {
+      watchStart = `${startAd}-${pad(startMonth)}-${pad(startDay)}`;
+      watchEnd = `${endAd}-${pad(endMonth)}-${pad(endDay)}`;
+      matchedHints.push(
+        `ห้วงเฝ้าระวัง: ${formatThaiDateTime(watchStart, { includeTime: false })} – ${formatThaiDateTime(watchEnd, { includeTime: false })}`
+      );
+    }
+  } else if (reportedAt) {
+    watchStart = reportedAt;
+    watchEnd = reportedAt;
+  }
+
+  // 3. Extract all watched districts (prefer text after "พื้นที่เฝ้าระวัง/พื้นที่เพ่งเล็ง/เตรียมก่อเหตุ")
+  const anchorIdx = normalized.search(
+    /พื้นที่เฝ้าระวัง|พื้นที่เพ่งเล็ง|เตรียมการก่อเหตุ|เตรียมก่อเหตุ/
+  );
+  const collectAreasFromSlice = (sliceText: string): WatchAreaTarget[] => {
+    const provMatches = Array.from(
+      sliceText.matchAll(/(?:จว\.|จ\.|จังหวัด)\s*([ก-๙]+(?:\.[ก-๙]*)?)/g)
+    ).map((m) => ({ idx: m.index ?? 0, name: m[1].replace(/ฯ+$/, '').trim() }));
+    const fallbackProv =
+      provMatches[0]?.name ||
+      normalized.match(/(?:จว\.|จ\.|จังหวัด)\s*([ก-๙]+)/)?.[1]?.replace(/ฯ+$/, '').trim() ||
+      '';
+
+    const distRegex = /(?:^|[\s,(])(?:อ\.|อำเภอ|อ,)\s*([ก-๙]+(?:-[ก-๙]+)?)/g;
+    const found: WatchAreaTarget[] = [];
+    const seen = new Set<string>();
+
+    for (const m of sliceText.matchAll(distRegex)) {
+      const token = m[1].replace(/ฯ+$/, '').trim();
+      if (!token) continue;
+      const mIdx = m.index ?? 0;
+      const upcomingProv = provMatches.find((p) => p.idx >= mIdx)?.name || fallbackProv;
+      const matched =
+        matchAreaByThaiNames(upcomingProv, token) ||
+        (upcomingProv ? matchAreaByThaiNames('', token) : null);
+      if (matched) {
+        const key = `${matched.province}|${matched.district}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          found.push({ province: matched.province, district: matched.district });
+        }
+      }
+    }
+    return found;
+  };
+
+  let areas = anchorIdx >= 0 ? collectAreasFromSlice(normalized.slice(anchorIdx)) : [];
+  if (areas.length === 0) {
+    areas = collectAreasFromSlice(normalized);
+  }
+  if (areas.length > 0) {
+    matchedHints.push(`พื้นที่เฝ้าระวัง: ${areas.length} อำเภอ`);
+  }
+
+  // 4. Infer threat type & watch alert level
+  let threatType = 'ความเคลื่อนไหวกลุ่มผู้ก่อเหตุรุนแรง';
+  let alertLevel: WatchAlertLevel = 'medium';
+
+  if (/คาร์บอมบ์|Car\s*Bomb|จยย\.?\s*บอมบ์|จักรยานยนต์บอมบ์|Motorcycle\s*Bomb/i.test(normalized)) {
+    threatType = 'คาร์บอมบ์ / จยย.บอมบ์';
+    alertLevel = 'critical';
+  } else if (/ลอบวางระเบิด|วัตถุระเบิด|ระเบิดแสวงเครื่อง|ไปป์บอมบ์|ระเบิด/.test(normalized)) {
+    threatType = /ซุ่มยิง|ซุ่มโจมตี|ลอบยิง/.test(normalized)
+      ? 'ลอบวางระเบิด / ซุ่มโจมตี'
+      : 'ลอบวางระเบิดแสวงเครื่อง';
+    alertLevel = 'critical';
+  } else if (/ซุ่มยิง|ซุ่มโจมตี|ลอบยิง|กราดยิง/.test(normalized)) {
+    threatType = 'ลอบยิง / ซุ่มโจมตี';
+    alertLevel = 'high';
+  } else if (/วางเพลิง|ลอบเผา|เผายาง|เผากล้อง|ก่อกวน|พ่นสี/.test(normalized)) {
+    threatType = 'ก่อกวน / วางเพลิง';
+    alertLevel = 'high';
+  }
+
+  matchedHints.push(`รูปแบบ: ${threatType}`);
+
+  return {
+    reportedAt,
+    watchStart,
+    watchEnd,
+    areas,
+    threatType,
+    alertLevel,
+    matchedHints,
   };
 }

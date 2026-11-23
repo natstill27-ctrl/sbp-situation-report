@@ -14,9 +14,10 @@ import {
   Printer,
   RotateCcw,
   Shield,
+  ShieldAlert,
   Sun,
 } from 'lucide-react';
-import type { AppSettings, IncidentRecord } from '../types/incident';
+import type { AppSettings, IncidentRecord, WatchAlertRecord } from '../types/incident';
 import {
   exportHorizontalBarsToPng,
   exportIpbMatrixToCsv,
@@ -35,13 +36,17 @@ import {
 import {
   THAI_MONTHS_LONG,
   THAI_MONTHS_SHORT,
+  extractWatchAdvisory,
   formatThaiDateTime,
+  isWatchAdvisoryCategory,
+  isWatchAlertActive,
   toThaiDigits,
 } from '../utils/thaiDate';
 import { LeafletMap } from './LeafletMap';
 
 interface IpbDashboardPageProps {
   incidents: IncidentRecord[];
+  watchAlerts?: WatchAlertRecord[];
   categories: string[];
   settings?: AppSettings;
   lastPulledAt?: string | null;
@@ -63,6 +68,7 @@ const C2_CATEGORY_PALETTE = [
 
 export function IpbDashboardPage({
   incidents,
+  watchAlerts = [],
   categories,
   settings,
   lastPulledAt,
@@ -75,6 +81,9 @@ export function IpbDashboardPage({
   const [provinceFilter, setProvinceFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [severityFilter, setSeverityFilter] = useState<'' | SeverityLevel>('');
+  const [excludeWatchFromStats, setExcludeWatchFromStats] = useState(true);
+  const [showWatchZones, setShowWatchZones] = useState(true);
+  const [watchActiveOnly, setWatchActiveOnly] = useState(false);
   const [c2Theme, setC2Theme] = useState<'dark' | 'light'>('dark');
   const [mapColorMode, setMapColorMode] = useState<'severity' | 'category'>('severity');
   const [useMilSymbol, setUseMilSymbol] = useState(false);
@@ -126,8 +135,68 @@ export function IpbDashboardPage({
   const getC2CatColor = (cat: string, fallbackIdx = 0): string =>
     categoryColorMap.get(cat) || C2_CATEGORY_PALETTE[fallbackIdx % C2_CATEGORY_PALETTE.length];
 
+  const advisoryIncidentsCount = useMemo(
+    () => incidents.filter((item) => isWatchAdvisoryCategory(item.category)).length,
+    [incidents]
+  );
+
+  const combinedWatchAlerts = useMemo<WatchAlertRecord[]>(() => {
+    const list: WatchAlertRecord[] = [...watchAlerts];
+    for (const item of incidents) {
+      if (!isWatchAdvisoryCategory(item.category)) continue;
+      const parsed = extractWatchAdvisory(item.details);
+      const areas =
+        parsed.areas.length > 0
+          ? parsed.areas
+          : item.province && item.district
+            ? [{ province: item.province, district: item.district }]
+            : [];
+      if (areas.length === 0) continue;
+      const dateStr = (item.occurredAt || item.createdAt || '').slice(0, 10);
+      list.push({
+        id: `HIST-${item.id}`,
+        reportedAt: parsed.reportedAt || dateStr,
+        watchStart: parsed.watchStart || parsed.reportedAt || dateStr,
+        watchEnd: parsed.watchEnd || parsed.reportedAt || dateStr,
+        areas,
+        threatType: parsed.threatType,
+        alertLevel: parsed.alertLevel,
+        details: item.details,
+        reporter: item.reporter || '-',
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        syncStatus: item.syncStatus,
+      });
+    }
+    return list;
+  }, [watchAlerts, incidents]);
+
+  const displayedWatchAlerts = useMemo(() => {
+    return combinedWatchAlerts.filter((w) => {
+      if (watchActiveOnly && isWatchAlertActive(w) !== 'active') return false;
+      if (provinceFilter && !w.areas.some((a) => a.province === provinceFilter)) return false;
+      return true;
+    });
+  }, [combinedWatchAlerts, watchActiveOnly, provinceFilter]);
+
+  const activeWatchAlerts = useMemo(
+    () => combinedWatchAlerts.filter((w) => isWatchAlertActive(w) === 'active'),
+    [combinedWatchAlerts]
+  );
+
+  const activeWatchDistrictCount = useMemo(() => {
+    const set = new Set<string>();
+    for (const w of activeWatchAlerts) {
+      for (const a of w.areas) {
+        set.add(`${a.province}|${a.district}`);
+      }
+    }
+    return set.size;
+  }, [activeWatchAlerts]);
+
   const filtered = useMemo(() => {
     return incidents.filter((item) => {
+      if (excludeWatchFromStats && isWatchAdvisoryCategory(item.category)) return false;
       const itemDate = (item.occurredAt || '').slice(0, 10);
       if (dateFrom && itemDate < dateFrom) return false;
       if (dateTo && itemDate > dateTo) return false;
@@ -139,7 +208,15 @@ export function IpbDashboardPage({
       }
       return true;
     });
-  }, [incidents, dateFrom, dateTo, provinceFilter, categoryFilter, severityFilter]);
+  }, [
+    incidents,
+    excludeWatchFromStats,
+    dateFrom,
+    dateTo,
+    provinceFilter,
+    categoryFilter,
+    severityFilter,
+  ]);
 
   const totalEventCount = useMemo(
     () => filtered.reduce((acc, item) => acc + getIncidentWeight(item), 0),
@@ -702,11 +779,22 @@ export function IpbDashboardPage({
                   .join(' • ')}
               </span>
             )}
+            <label className="c2-xs-check" style={{ marginLeft: 'auto' }}>
+              <input
+                type="checkbox"
+                checked={excludeWatchFromStats}
+                onChange={(e) => setExcludeWatchFromStats(e.target.checked)}
+              />
+              <span>
+                แยกข่าวความเคลื่อนไหว/เฝ้าระวังออกจากสถิติเหตุจริง
+                {advisoryIncidentsCount > 0 ? ` (${advisoryIncidentsCount} ข่าว)` : ''}
+              </span>
+            </label>
           </div>
         </div>
       )}
 
-      {incidents.length === 0 ? (
+      {incidents.length === 0 && combinedWatchAlerts.length === 0 ? (
         <div className="c2-panel c2-panel-blue c2-empty-state">
           <BarChart3 size={42} aria-hidden="true" />
           <h3>ยังไม่มีข้อมูลเหตุการณ์สำหรับแสดงผล Command Center</h3>
@@ -720,6 +808,40 @@ export function IpbDashboardPage({
         </div>
       ) : (
         <>
+          {activeWatchAlerts.length > 0 && (
+            <div className="c2-watch-banner" role="region" aria-label="แจ้งเตือนพื้นที่เฝ้าระวัง">
+              <div className="c2-watch-banner-left">
+                <ShieldAlert size={20} aria-hidden="true" />
+                <div>
+                  <strong>
+                    พื้นที่เฝ้าระวังที่อยู่ในห้วงเวลา ({activeWatchAlerts.length} ข่าวกรอง •{' '}
+                    {activeWatchDistrictCount} อำเภอ)
+                  </strong>
+                  <div className="c2-watch-banner-meta">
+                    {activeWatchAlerts.slice(0, 3).map((w) => {
+                      const win =
+                        w.watchStart && w.watchEnd && w.watchStart !== w.watchEnd
+                          ? `${formatThaiDateTime(w.watchStart, { includeTime: false })} – ${formatThaiDateTime(w.watchEnd, { includeTime: false })}`
+                          : formatThaiDateTime(w.watchStart || w.reportedAt, { includeTime: false });
+                      return (
+                        <span key={w.id} className="c2-watch-pill">
+                          {w.threatType} ({w.areas.length} อ. | {win})
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="c2-xs-btn"
+                onClick={() => setShowWatchZones((v) => !v)}
+              >
+                {showWatchZones ? 'ซ่อนเขตเฝ้าระวัง' : 'แสดงเขตเฝ้าระวังบนแผนที่'}
+              </button>
+            </div>
+          )}
+
           {/* Row 1: 5 Color-Coded Tactical KPI Tiles */}
           <div className="c2-kpi-grid">
             <div className="c2-kpi-tile c2-kpi-blue">
@@ -780,6 +902,23 @@ export function IpbDashboardPage({
                   </div>
                 </div>
                 <div className="c2-panel-tools no-print">
+                  <label className="c2-xs-check">
+                    <input
+                      type="checkbox"
+                      checked={showWatchZones}
+                      onChange={(e) => setShowWatchZones(e.target.checked)}
+                    />
+                    <span>เขตเฝ้าระวัง ({displayedWatchAlerts.length})</span>
+                  </label>
+                  {showWatchZones && combinedWatchAlerts.length > 0 && (
+                    <button
+                      type="button"
+                      className="c2-xs-btn"
+                      onClick={() => setWatchActiveOnly((v) => !v)}
+                    >
+                      {watchActiveOnly ? 'เฉพาะกำลังเฝ้าระวัง' : 'เฝ้าระวังทั้งหมด'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="c2-xs-btn"
@@ -807,6 +946,8 @@ export function IpbDashboardPage({
                 onSelectIncident={setSelectedMapId}
                 colorMode={mapColorMode}
                 markerStyle={useMilSymbol ? 'milsymbol' : 'pin'}
+                watchAlerts={displayedWatchAlerts}
+                showWatchZones={showWatchZones}
                 offlinePmtilesUrl={settings?.offlinePmtilesUrl}
                 height="348px"
               />

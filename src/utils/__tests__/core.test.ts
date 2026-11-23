@@ -6,19 +6,26 @@ import { buildIncidentsKml, formatIncidentForLine, formatIncidentForPaper } from
 import {
   buildGasPayload,
   buildLegacyLocationText,
+  buildWatchAlertGasPayload,
   generateGasReceiverCode,
   parsePulledGasResponse,
 } from '../gasSync';
-import { lookupAreaByLatLng, matchAreaByThaiNames } from '../geoLookup';
+import {
+  getWatchZonePolygonsGeoJson,
+  lookupAreaByLatLng,
+  matchAreaByThaiNames,
+} from '../geoLookup';
 import {
   buildAreaSeverityStats,
   buildDailyTrendBuckets,
   classifyIncidentSeverity,
 } from '../severity';
 import {
+  WATCH_ADVISORY_CATEGORY,
   classifyCategoryFromText,
   extractMultiAreaPaper,
   extractPaperMetadata,
+  extractWatchAdvisory,
   formatThaiDateTime,
   fromThaiDigits,
   toThaiDigits,
@@ -565,5 +572,72 @@ describe('Refined Category Classifier & Legacy Prefix Stripping', () => {
     expect(cleanedLoc).toBe(
       '[ตรวจยึด/จับกุม] ต.สะบารัง อ.เมืองปัตตานี จว.ปัตตานี — เจ้าหน้าที่ตรวจยึดของกลาง'
     );
+  });
+});
+
+describe('Threat Watch Advisory Parser, Polygons & Separate GAS Tab', () => {
+  it('classifies watch advisory reports under dedicated advisory category', () => {
+    expect(
+      classifyCategoryFromText(
+        'ปรากฏข่าวสารความเคลื่อนไหวเตรียมลอบวางระเบิด พื้นที่เฝ้าระวัง อ.ยะรัง จว.ปัตตานี',
+        DEFAULT_CATEGORIES
+      )
+    ).toBe(WATCH_ADVISORY_CATEGORY);
+  });
+
+  it('extracts multi-district watch targets, hyphenated names, short เมือง alias, and date windows', () => {
+    const syntheticWatch =
+      'เมื่อ ๕ มี.ค.๖๘ ปรากฏข่าวสารความเคลื่อนไหวกลุ่มผู้ก่อเหตุรุนแรง เตรียมนำยานพาหนะดัดแปลงเป็นระเบิดคาร์บอมบ์ (Car Bomb) และ จยย.บอมบ์ ก่อเหตุในพื้นที่เฝ้าระวัง อ.ยี่งอ อ.สุไหงโก-ลก อ.ตากใบ และ อ.เมือง จว.นราธิวาส ห้วงเฝ้าระวัง ๕ - ๑๖ มี.ค.๖๘';
+
+    const parsed = extractWatchAdvisory(syntheticWatch);
+    expect(parsed.reportedAt).toBe('2025-03-05');
+    expect(parsed.watchStart).toBe('2025-03-05');
+    expect(parsed.watchEnd).toBe('2025-03-16');
+    expect(parsed.threatType).toBe('คาร์บอมบ์ / จยย.บอมบ์');
+    expect(parsed.alertLevel).toBe('critical');
+    expect(parsed.areas).toHaveLength(4);
+    expect(parsed.areas).toContainEqual({ province: 'นราธิวาส', district: 'สุไหงโก-ลก' });
+    expect(parsed.areas).toContainEqual({ province: 'นราธิวาส', district: 'เมืองนราธิวาส' });
+
+    const crossMonth = extractWatchAdvisory(
+      'พื้นที่เพ่งเล็ง อ.ยะรัง จว.ปัตตานี ห้วงเฝ้าระวังตั้งแต่ ๒๕ ก.พ. - ๑๐ มี.ค.๖๘'
+    );
+    expect(crossMonth.watchStart).toBe('2025-02-25');
+    expect(crossMonth.watchEnd).toBe('2025-03-10');
+    expect(crossMonth.areas).toContainEqual({ province: 'ปัตตานี', district: 'ยะรัง' });
+
+    const geo = getWatchZonePolygonsGeoJson([
+      { province: 'นราธิวาส', district: 'สุไหงโก-ลก' },
+      { province: 'นราธิวาส', district: 'เมืองนราธิวาส' },
+    ]);
+    expect(geo.features.length).toBeGreaterThan(2);
+    expect(geo.features.some((f) => f.properties.district === 'สุไหงโก-ลก')).toBe(true);
+    expect(geo.features.some((f) => f.properties.district === 'เมืองนราธิวาส')).toBe(true);
+  });
+
+  it('builds separate watch-tab GAS payload and SbpBridge handler without secrets', () => {
+    const sampleWatch = {
+      id: 'WATCH-2568-001',
+      reportedAt: '2025-03-05',
+      watchStart: '2025-03-05',
+      watchEnd: '2025-03-16',
+      areas: [{ province: 'นราธิวาส', district: 'สุไหงโก-ลก' }],
+      threatType: 'คาร์บอมบ์ / จยย.บอมบ์',
+      alertLevel: 'critical' as const,
+      details: 'ข้อมูลทดสอบพื้นที่เฝ้าระวังสังเคราะห์',
+      reporter: 'ศปก.ทดสอบ',
+      createdAt: '2025-03-05T08:00:00Z',
+      updatedAt: '2025-03-05T08:00:00Z',
+      syncStatus: 'pending' as const,
+    };
+
+    const payload = buildWatchAlertGasPayload(sampleWatch, DEFAULT_SETTINGS);
+    expect(payload.action).toBe('createOrUpdateWatchAlert');
+    expect(payload.watchSheetName).toBe('พื้นที่เฝ้าระวัง_IPB');
+    expect(String(payload.areasJson)).toContain('สุไหงโก-ลก');
+
+    const bridge = generateGasReceiverCode(DEFAULT_SETTINGS);
+    expect(bridge).toContain('createOrUpdateWatchAlert');
+    expect(bridge).toContain('พื้นที่เฝ้าระวัง_IPB');
   });
 });
