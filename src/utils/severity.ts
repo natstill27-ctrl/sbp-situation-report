@@ -47,6 +47,11 @@ export function classifyIncidentSeverity(category: string, details = ''): Severi
     if (/บาดเจ็บ/.test(cleanedDetails)) return SEVERITY_LEVELS[1];
     return SEVERITY_LEVELS[2];
   }
+  if (/ทำลายกล้อง|กล้อง\s*CCTV|กล้องวงจรปิด/i.test(cat)) {
+    if (/เสียชีวิต/.test(cleanedDetails)) return SEVERITY_LEVELS[0];
+    if (/บาดเจ็บ/.test(cleanedDetails)) return SEVERITY_LEVELS[1];
+    return SEVERITY_LEVELS[2];
+  }
   if (/ตรวจยึด|จับกุม|อุบัติเหตุ|ภัยพิบัติ/.test(cat)) {
     if (/เสียชีวิต/.test(cleanedDetails)) return SEVERITY_LEVELS[0];
     if (/บาดเจ็บ/.test(cleanedDetails)) return SEVERITY_LEVELS[1];
@@ -63,7 +68,7 @@ export function classifyIncidentSeverity(category: string, details = ''): Severi
   if (/วางเพลิง|ลอบเผา|เผาอาคาร|เผาศาลา|เผาป้อม|เผารถ|บาดเจ็บ/.test(cleanedDetails)) {
     return SEVERITY_LEVELS[1];
   }
-  if (/ก่อกวน|โปรยตะปู|ตะปูเรือใบ|เผายาง|พ่นสี|ป้ายผ้า|วัตถุต้องสงสัย/.test(cleanedDetails)) {
+  if (/ก่อกวน|โปรยตะปู|ตะปูเรือใบ|เผายาง|ทำลายกล้อง|เผากล้อง|ยิงทำลายกล้อง|พ่นสี|ป้ายผ้า|วัตถุต้องสงสัย/.test(cleanedDetails)) {
     return SEVERITY_LEVELS[2];
   }
 

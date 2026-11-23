@@ -155,6 +155,8 @@ function resolveKmlStyleId(category: string): string {
   if (/วางเพลิง/.test(category)) return 'arson';
   if (/ตรวจยึด|จับกุม/.test(category)) return 'seizure';
   if (/ก่อกวน|ตะปู|เผายาง/.test(category)) return 'harassment';
+  if (/กล้อง|CCTV|วงจรปิด/i.test(category)) return 'cctv';
+  if (/ข่าวสาร|ความเคลื่อนไหว|เฝ้าระวัง/.test(category)) return 'watch';
   if (/อุบัติเหตุ|ภัยพิบัติ/.test(category)) return 'disaster';
   return 'other';
 }
@@ -170,6 +172,8 @@ export function buildIncidentsKml(incidents: IncidentRecord[]): string {
     ['arson', 'https://maps.google.com/mapfiles/kml/paddle/orange-circle.png'],
     ['seizure', 'https://maps.google.com/mapfiles/kml/paddle/blu-circle.png'],
     ['harassment', 'https://maps.google.com/mapfiles/kml/paddle/ylw-circle.png'],
+    ['cctv', 'https://maps.google.com/mapfiles/kml/paddle/grn-circle.png'],
+    ['watch', 'https://maps.google.com/mapfiles/kml/paddle/pink-circle.png'],
     ['disaster', 'https://maps.google.com/mapfiles/kml/paddle/ltblu-circle.png'],
     ['other', 'https://maps.google.com/mapfiles/kml/paddle/wht-circle.png'],
   ]

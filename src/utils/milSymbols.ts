@@ -22,7 +22,9 @@ const CATEGORY_SIDC_MAP: Record<string, MilSymbolSpec> = {
   'วางเพลิง': { sidc: 'SHGPE-----****X', label: 'Arson / Sabotage' },
   'ตรวจยึด/จับกุม': { sidc: 'SFGPUCI---****X', label: 'Friendly Seizure / Arrest' },
   'ก่อกวน/โปรยตะปูเรือใบ-เผายาง': { sidc: 'SHGPI-----****X', label: 'Harassment / Road Disruption' },
+  'ทำลายกล้อง CCTV': { sidc: 'SHGPE-----****X', label: 'CCTV Sabotage / Destruction' },
   'อุบัติเหตุ/ภัยพิบัติ': { sidc: 'SNGPE-----****X', label: 'Accident / Disaster' },
+  'ข่าวสารความเคลื่อนไหว/เฝ้าระวัง': { sidc: 'SUGPU-----****X', label: 'Threat Watch / Advisory' },
   'อื่นๆ': { sidc: 'SUGPU-----****X', label: 'Other / Unspecified' },
 };
 

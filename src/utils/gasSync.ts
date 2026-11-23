@@ -7,7 +7,13 @@ import type {
 } from '../types/incident';
 import { buildParsedCoordinate, parseCoordinateInput } from './coordinates';
 import { lookupAreaByLatLng, matchAreaByThaiNames } from './geoLookup';
-import { extractPaperMetadata, extractWatchAdvisory, formatThaiDateTime } from './thaiDate';
+import {
+  classifyCategoryFromText,
+  extractPaperMetadata,
+  extractWatchAdvisory,
+  formatThaiDateTime,
+  WATCH_ADVISORY_CATEGORY,
+} from './thaiDate';
 
 export interface GasSyncResult {
   ok: boolean;
@@ -184,12 +190,47 @@ export function parsePulledGasResponse(
 
   const m = settings.fieldMapping;
   const ipbRecords: IncidentRecord[] = [];
+  const ipbWatchAlerts: WatchAlertRecord[] = [];
+  const watchLegacyRows = new Set<number>();
+  const watchDetailsPrefixes: string[] = [];
   const legacyRecords: IncidentRecord[] = [];
 
   for (let idx = 0; idx < ipbRows.length; idx++) {
     const row = ipbRows[idx];
     const id = String(readMappedField(row, m.id, 'id') ?? '').trim() || `IPB-GAS-${idx + 1}`;
     const occurredAt = normalizeOccurredAt(readMappedField(row, m.occurredAt, 'occurredAt'));
+    const details = String(readMappedField(row, m.details, 'details') ?? '').trim();
+    const reporter = String(readMappedField(row, m.reporter, 'reporter') ?? '').trim() || '-';
+    const createdAt =
+      String(readMappedField(row, m.createdAt, 'createdAt') ?? '').trim() ||
+      new Date().toISOString();
+    const legacyRowNum = toOptionalNumber(row.legacyRowNumber) ?? undefined;
+
+    // Fallback: route legacy-bridge WATCH-* rows saved into ipbRows into Watch Alerts instead of incidents
+    if (id.startsWith('WATCH-')) {
+      const parsed = extractWatchAdvisory(details);
+      const reportedAt = occurredAt.slice(0, 10) || parsed.reportedAt || createdAt.slice(0, 10);
+      const watchStart = parsed.watchStart || reportedAt;
+      const watchEnd = parsed.watchEnd || watchStart;
+      ipbWatchAlerts.push({
+        id,
+        reportedAt,
+        watchStart,
+        watchEnd,
+        areas: parsed.areas,
+        threatType: parsed.threatType,
+        alertLevel: parsed.alertLevel,
+        details,
+        reporter,
+        createdAt,
+        updatedAt: createdAt,
+        syncStatus: 'synced',
+      });
+      if (legacyRowNum) watchLegacyRows.add(legacyRowNum);
+      if (details.length >= 12) watchDetailsPrefixes.push(details.slice(0, 40));
+      continue;
+    }
+
     const coordinateRaw = String(readMappedField(row, m.coordinateRaw, 'coordinateRaw') ?? '').trim();
 
     let lat = toOptionalNumber(readMappedField(row, m.lat, 'lat'));
@@ -232,15 +273,12 @@ export function parsePulledGasResponse(
       }
     }
 
+    const rawCategory = String(readMappedField(row, m.category, 'category') ?? '').trim();
     const category =
-      String(readMappedField(row, m.category, 'category') ?? '').trim() ||
+      rawCategory ||
+      classifyCategoryFromText(details, settings.categories) ||
       settings.categories[0] ||
       'อื่นๆ';
-    const details = String(readMappedField(row, m.details, 'details') ?? '').trim();
-    const reporter = String(readMappedField(row, m.reporter, 'reporter') ?? '').trim() || '-';
-    const createdAt =
-      String(readMappedField(row, m.createdAt, 'createdAt') ?? '').trim() ||
-      new Date().toISOString();
     const eventCountVal = toOptionalNumber(row.eventCount);
     const batchIdVal = String(row.batchId ?? '').trim();
 
@@ -263,7 +301,7 @@ export function parsePulledGasResponse(
       updatedAt: createdAt,
       syncStatus: 'synced',
       sourceSheet: 'ipb',
-      legacyRowNumber: toOptionalNumber(row.legacyRowNumber) ?? undefined,
+      legacyRowNumber: legacyRowNum,
       ...(eventCountVal && eventCountVal > 1 ? { eventCount: Math.round(eventCountVal) } : {}),
       ...(batchIdVal ? { batchId: batchIdVal } : {}),
     });
@@ -282,6 +320,11 @@ export function parsePulledGasResponse(
     const parsedCoord =
       (gpsText && gpsText !== '-' ? parseCoordinateInput(gpsText) : null) ||
       (locationText ? parseCoordinateInput(locationText) : null);
+
+    const isDuplicateWatch =
+      (typeof row.rowNumber === 'number' && watchLegacyRows.has(row.rowNumber)) ||
+      (locationText && watchDetailsPrefixes.some((prefix) => locationText.includes(prefix)));
+    if (isDuplicateWatch) continue;
 
     // Deduplicate Dual-Write rows already present in ipbRows
     const isDuplicate = ipbRecords.some((ipb) => {
@@ -435,9 +478,17 @@ export function parsePulledGasResponse(
     };
   });
 
+  const watchById = new Map<string, WatchAlertRecord>();
+  for (const w of ipbWatchAlerts) {
+    watchById.set(w.id, w);
+  }
+  for (const w of watchAlerts) {
+    watchById.set(w.id, w);
+  }
+
   return {
     records: combined,
-    watchAlerts,
+    watchAlerts: Array.from(watchById.values()),
     ipbCount: ipbRecords.length,
     legacyCount: legacyRecords.length,
   };
@@ -459,8 +510,14 @@ export function buildWatchAlertGasPayload(
   return {
     action: 'createOrUpdateWatchAlert',
     watchSheetName: (settings.watchSheetName || 'พื้นที่เฝ้าระวัง_IPB').trim(),
+    dualWriteLegacy: false,
     id: alert.id,
     reportedAt: alert.reportedAt,
+    occurredAt: alert.reportedAt,
+    occurredAtBE: formatThaiDateTime(alert.reportedAt, { includeTime: false }),
+    category: WATCH_ADVISORY_CATEGORY,
+    province: alert.areas[0]?.province || '',
+    district: alert.areas[0]?.district || '',
     watchStart: alert.watchStart,
     watchEnd: alert.watchEnd,
     alertLevel: alert.alertLevel,

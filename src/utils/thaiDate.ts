@@ -202,6 +202,7 @@ export function extractPaperMetadata(rawText: string, availableCategories: strin
 }
 
 export const WATCH_ADVISORY_CATEGORY = 'ข่าวสารความเคลื่อนไหว/เฝ้าระวัง';
+export const CCTV_DESTRUCTION_CATEGORY = 'ทำลายกล้อง CCTV';
 
 export function isWatchAdvisoryCategory(category: string): boolean {
   return (
@@ -222,6 +223,10 @@ const KEYWORD_CATEGORY_MAP: Array<[RegExp, string[]]> = [
   [
     /ลอบวางระเบิด|วางระเบิด|ขว้างระเบิด|ไปป์บอมบ์|ระเบิดแสวงเครื่อง|เกิดเหตุระเบิด|เหตุระเบิด|แรงระเบิด|คาร์บอมบ์|M79|เอ็ม\s*79|I\.?E\.?D\.?|วัตถุต้องสงสัยคล้ายระเบิด/i,
     ['ระเบิด', 'ลอบวางระเบิด'],
+  ],
+  [
+    /(?:ทำลาย|เผา(?:ทำลาย)?|ยิง(?:และเผา)?(?:ทำลาย)?|ลอบ(?:เผา|ยิง|ทำลาย)|ตัดสาย|พ่นสี(?:ทับ)?|ทุบ(?:ทำลาย)?|ดึง|ปลด)\s*กล้อง(?:\s*วงจรปิด|\s*CCTV|\s*\(?\s*CCTV\s*\)?)|กล้อง(?:\s*วงจรปิด|\s*CCTV|\s*\(?\s*CCTV\s*\)?)\s*(?:ถูก(?:เผา|ยิง|ทำลาย|ตัดสาย)|ได้รับความเสียหาย)/i,
+    [CCTV_DESTRUCTION_CATEGORY, 'ทำลายกล้อง'],
   ],
   [
     /ซุ่มยิง|ซุ่มโจมตี|ลอบยิง|ใช้อาวุธปืน|กราดยิง|ถูกยิง|ยิงก่อกวน|ยิงทำลาย|ยิงกล้อง|ยิงเข้าใส่|ยิงใส่|พบรอยกระสุนปืน/,
@@ -251,6 +256,8 @@ export function classifyCategoryFromText(
   if (!normalized || availableCategories.length === 0) return undefined;
 
   const cleaned = normalized
+    .replace(/\(ความเสียหายรวม:[^)]*\)/g, '')
+    .replace(/(?:ตรวจสอบ|เช็ค|ตรวจเช็ค|ไล่ดู|ดู|เก็บหลักฐานจาก)?ภาพ(?:จาก)?(?:กล้อง)?(?:วงจรปิด|CCTV)/gi, '')
     .replace(/ไม่พบ(?:วัตถุระเบิด|ระเบิด|อาวุธปืน|กระสุนปืน)/g, '')
     .replace(/ชุดเก็บกู้(?:และตรวจสอบ)?วัตถุระเบิด|ชุด\s*EOD\s*เข้าตรวจสอบ/gi, '')
     .trim();

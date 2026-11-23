@@ -21,6 +21,7 @@ import {
   classifyIncidentSeverity,
 } from '../severity';
 import {
+  CCTV_DESTRUCTION_CATEGORY,
   WATCH_ADVISORY_CATEGORY,
   classifyCategoryFromText,
   extractMultiAreaPaper,
@@ -639,5 +640,130 @@ describe('Threat Watch Advisory Parser, Polygons & Separate GAS Tab', () => {
     const bridge = generateGasReceiverCode(DEFAULT_SETTINGS);
     expect(bridge).toContain('createOrUpdateWatchAlert');
     expect(bridge).toContain('พื้นที่เฝ้าระวัง_IPB');
+  });
+});
+
+describe('CCTV Destruction Category & Legacy WATCH- Compatibility', () => {
+  it('classifies CCTV sabotage accurately without false positives on damage summaries or footage checks', () => {
+    expect(DEFAULT_CATEGORIES).toContain(CCTV_DESTRUCTION_CATEGORY);
+
+    expect(
+      classifyCategoryFromText(
+        'สร้างสถานการณ์ก่อกวนด้วยการเผากล้อง CCTV เสียหาย 3 ตัว',
+        DEFAULT_CATEGORIES
+      )
+    ).toBe(CCTV_DESTRUCTION_CATEGORY);
+
+    expect(
+      classifyCategoryFromText(
+        'คนร้ายใช้อาวุธปืนยิงทำลายกล้อง CCTV บนเสาไฟฟ้าเสียหาย 1 ตัว',
+        DEFAULT_CATEGORIES
+      )
+    ).toBe(CCTV_DESTRUCTION_CATEGORY);
+
+    expect(
+      classifyCategoryFromText(
+        'ก่อเหตุยิงและเผาทำลายกล้อง CCTV บริเวณสามแยกถนนสายรอง',
+        DEFAULT_CATEGORIES
+      )
+    ).toBe(CCTV_DESTRUCTION_CATEGORY);
+
+    expect(
+      classifyCategoryFromText(
+        'คนร้ายลอบทำลายกล้องวงจรปิด (CCTV) หน้าป้อมจุดตรวจ',
+        DEFAULT_CATEGORIES
+      )
+    ).toBe(CCTV_DESTRUCTION_CATEGORY);
+
+    // Anti-false-positive checks
+    expect(
+      classifyCategoryFromText(
+        'เหตุลอบวางระเบิด 2 เหตุการณ์ (ความเสียหายรวม: กล้อง CCTV เสียหาย 2 กล้อง)',
+        DEFAULT_CATEGORIES
+      )
+    ).toBe('ระเบิด');
+
+    expect(
+      classifyCategoryFromText(
+        'เผาศาลา 1 เหตุการณ์ (ความเสียหายรวม: กล้อง CCTV เสียหาย 2 กล้อง)',
+        DEFAULT_CATEGORIES
+      )
+    ).toBe('วางเพลิง');
+
+    expect(
+      classifyCategoryFromText(
+        'คนร้ายใช้อาวุธปืนยิงรบกวนจุดตรวจ เจ้าหน้าที่ตรวจสอบภาพวงจรปิดโดยรอบ',
+        DEFAULT_CATEGORIES
+      )
+    ).toBe('ใช้อาวุธปืน/ลอบยิง');
+
+    expect(
+      classifyCategoryFromText(
+        'ปรากฏข่าวสารความเคลื่อนไหว อาจก่อเหตุเผากล้อง CCTV พื้นที่เฝ้าระวัง อ.ยะรัง จว.ปัตตานี',
+        DEFAULT_CATEGORIES
+      )
+    ).toBe(WATCH_ADVISORY_CATEGORY);
+
+    expect(
+      classifyIncidentSeverity(
+        CCTV_DESTRUCTION_CATEGORY,
+        'เผากล้อง CCTV 2 จุด ไม่มีผู้ได้รับบาดเจ็บ'
+      ).level
+    ).toBe('medium');
+  });
+
+  it('routes fallback WATCH-* rows in ipbRows to watchAlerts and deduplicates legacy pairs', () => {
+    const watchDetails =
+      'เมื่อ ๕ มี.ค.๖๘ ปรากฏข่าวสารความเคลื่อนไหวเตรียมก่อเหตุ พื้นที่เฝ้าระวัง อ.ยะรัง จว.ปัตตานี ห้วงเฝ้าระวัง ๕ - ๑๖ มี.ค.๖๘';
+    const pulled = parsePulledGasResponse(
+      {
+        ok: true,
+        ipbRows: [
+          {
+            id: 'WATCH-2568-TEST1',
+            occurredAt: '',
+            category: '',
+            province: '',
+            district: '',
+            details: watchDetails,
+            reporter: 'ศปก.ทดสอบ',
+            createdAt: '2025-03-05T08:00:00Z',
+            legacyRowNumber: 88,
+          },
+          {
+            id: 'INC-2568-CCTV1',
+            occurredAt: '2025-03-06T03:00',
+            category: '',
+            province: 'ปัตตานี',
+            district: 'ยะรัง',
+            details: 'คนร้ายลอบเผากล้อง CCTV เสียหาย 2 ตัว',
+            reporter: 'ศปก.ทดสอบ',
+            createdAt: '2025-03-06T03:30:00Z',
+          },
+        ],
+        legacyRows: [
+          {
+            rowNumber: 88,
+            date: '2025-03-05',
+            incident_type: DEFAULT_SETTINGS.legacyIncidentType,
+            location: watchDetails,
+            reporter_name: 'ศปก.ทดสอบ',
+            gps: '-',
+          },
+        ],
+      },
+      DEFAULT_SETTINGS
+    );
+
+    expect(pulled.records).toHaveLength(1);
+    expect(pulled.records[0].id).toBe('INC-2568-CCTV1');
+    expect(pulled.records[0].category).toBe(CCTV_DESTRUCTION_CATEGORY);
+    expect(pulled.watchAlerts).toHaveLength(1);
+    expect(pulled.watchAlerts[0].id).toBe('WATCH-2568-TEST1');
+    expect(pulled.watchAlerts[0].watchStart).toBe('2025-03-05');
+    expect(pulled.watchAlerts[0].areas).toContainEqual({
+      province: 'ปัตตานี',
+      district: 'ยะรัง',
+    });
   });
 });

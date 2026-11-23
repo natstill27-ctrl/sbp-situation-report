@@ -9,10 +9,21 @@ const STORE_WATCH_ALERTS = 'watch_alerts';
 const LS_INCIDENTS_KEY = 'sbp_incidents_fallback_v1';
 const LS_SETTINGS_KEY = 'sbp_settings_fallback_v1';
 const LS_WATCH_ALERTS_KEY = 'sbp_watch_alerts_fallback_v1';
+const CCTV_CATEGORY_LABEL = 'ทำลายกล้อง CCTV';
 const WATCH_CATEGORY_LABEL = 'ข่าวสารความเคลื่อนไหว/เฝ้าระวัง';
 
-function ensureWatchCategory(categories?: string[]): string[] {
+function ensureBuiltinCategories(categories?: string[]): string[] {
   const base = categories?.length ? [...categories] : [...DEFAULT_SETTINGS.categories];
+  if (!base.includes(CCTV_CATEGORY_LABEL)) {
+    const insertBefore = ['อุบัติเหตุ/ภัยพิบัติ', WATCH_CATEGORY_LABEL, 'อื่นๆ']
+      .map((label) => base.indexOf(label))
+      .find((idx) => idx >= 0);
+    if (insertBefore !== undefined) {
+      base.splice(insertBefore, 0, CCTV_CATEGORY_LABEL);
+    } else {
+      base.push(CCTV_CATEGORY_LABEL);
+    }
+  }
   if (!base.includes(WATCH_CATEGORY_LABEL)) {
     const otherIdx = base.indexOf('อื่นๆ');
     if (otherIdx >= 0) {
@@ -245,7 +256,7 @@ export async function loadSettings(): Promise<AppSettings> {
         ...DEFAULT_SETTINGS.fieldMapping,
         ...(saved.fieldMapping || {}),
       },
-      categories: ensureWatchCategory(saved.categories),
+      categories: ensureBuiltinCategories(saved.categories),
     };
   } catch {
     try {
@@ -259,7 +270,7 @@ export async function loadSettings(): Promise<AppSettings> {
           ...DEFAULT_SETTINGS.fieldMapping,
           ...(parsed.fieldMapping || {}),
         },
-        categories: ensureWatchCategory(parsed.categories),
+        categories: ensureBuiltinCategories(parsed.categories),
       };
     } catch {
       return DEFAULT_SETTINGS;
