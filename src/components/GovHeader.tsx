@@ -1,4 +1,4 @@
-import { BarChart3, FilePlus2, MapPin, Settings, ShieldAlert } from 'lucide-react';
+import { BarChart3, ClipboardList, FilePlus2, Settings, ShieldAlert } from 'lucide-react';
 import type { AppSettings } from '../types/incident';
 import { formatThaiDateTime } from '../utils/thaiDate';
 
@@ -36,11 +36,11 @@ export function GovHeader({
 
   const navItems: Array<{ id: ActiveTab; label: string; icon: typeof FilePlus2; badge?: number }> = [
     { id: 'entry', label: 'บันทึกเหตุการณ์', icon: FilePlus2 },
-    { id: 'ipb', label: 'แดชบอร์ดสถิติ & IPB', icon: BarChart3 },
+    { id: 'ipb', label: 'แดชบอร์ด & แผนที่ IPB', icon: BarChart3 },
     {
       id: 'map-list',
-      label: 'แผนที่รวม & รายการเหตุการณ์',
-      icon: MapPin,
+      label: 'คลังรายการเหตุการณ์',
+      icon: ClipboardList,
       badge: totalIncidents > 0 ? totalIncidents : undefined,
     },
     {

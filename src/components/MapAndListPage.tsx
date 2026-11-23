@@ -6,6 +6,7 @@ import {
   Download,
   Edit3,
   Globe,
+  MapPin,
   RefreshCw,
   Search,
   Trash2,
@@ -57,6 +58,7 @@ export function MapAndListPage({
   const [categoryFilter, setCategoryFilter] = useState('');
   const [syncFilter, setSyncFilter] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showMap, setShowMap] = useState(false);
   const [showBoundaries, setShowBoundaries] = useState(true);
   const [useMilSymbol, setUseMilSymbol] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -141,14 +143,22 @@ export function MapAndListPage({
       <div className="section-header-row">
         <div>
           <h2 id="map-list-heading" className="section-title">
-            แผนที่รวมและรายการเหตุการณ์ที่บันทึก
+            คลังรายการเหตุการณ์และจัดการข้อมูล
           </h2>
           <p className="section-subtitle">
-            ดูตำแหน่งหมุดรวมทั้งหมด ตรวจสอบสถานะการส่งเข้าระบบเดิม (ส่งซ้ำได้) และส่งออกไฟล์ CSV / ข้อความรายงาน
+            ค้นหา แก้ไข ลบ ตรวจสอบสถานะการซิงก์ระบบเดิม คัดลอกรายงาน LINE/Paper และส่งออก CSV / KML (ดูแผนที่รวมหลักได้ที่หน้าแดชบอร์ด &amp; แผนที่ IPB หรือกดเปิดแผนที่ตรวจสอบ)
           </p>
         </div>
 
         <div className="header-action-group">
+          <button
+            type="button"
+            className={`btn ${showMap ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => setShowMap((v) => !v)}
+          >
+            <MapPin size={16} aria-hidden="true" />
+            <span>{showMap ? 'ซ่อนแผนที่ตรวจสอบ' : 'เปิดแผนที่ตรวจสอบ'}</span>
+          </button>
           {onPullFromGas && (
             <button
               type="button"
@@ -307,47 +317,49 @@ export function MapAndListPage({
         </div>
       </div>
 
-      {/* Overview Map */}
-      <div className="gov-card map-card" style={{ marginBottom: '1.25rem' }}>
-        <div className="card-header-row">
-          <div>
-            <h3 className="card-title">
-              แผนที่รวมตำแหน่งเหตุการณ์ ({filtered.length} รายการ
-              {totalFilteredEvents > filtered.length ? ` • รวม ${totalFilteredEvents} เหตุการณ์` : ''})
-            </h3>
-            <p className="card-subtitle">คลิกหมุดบนแผนที่เพื่อดูรายละเอียด หรือคลิกแถวในตารางเพื่อโฟกัสตำแหน่ง</p>
+      {/* Collapsible Overview Map (Collapsed by default to avoid duplicating Dashboard map) */}
+      {showMap && (
+        <div className="gov-card map-card" style={{ marginBottom: '1.25rem' }}>
+          <div className="card-header-row">
+            <div>
+              <h3 className="card-title">
+                แผนที่ตรวจสอบตำแหน่งเหตุการณ์ ({filtered.length} รายการ
+                {totalFilteredEvents > filtered.length ? ` • รวม ${totalFilteredEvents} เหตุการณ์` : ''})
+              </h3>
+              <p className="card-subtitle">คลิกหมุดบนแผนที่เพื่อดูรายละเอียด หรือคลิกแถวในตารางเพื่อโฟกัสตำแหน่ง</p>
+            </div>
+            <div className="checkbox-row" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <label className="checkbox-inline">
+                <input
+                  type="checkbox"
+                  checked={showBoundaries}
+                  onChange={(e) => setShowBoundaries(e.target.checked)}
+                />
+                <span>แสดงเส้นเขตตำบล</span>
+              </label>
+              <label className="checkbox-inline">
+                <input
+                  type="checkbox"
+                  checked={useMilSymbol}
+                  onChange={(e) => setUseMilSymbol(e.target.checked)}
+                />
+                <span>สัญลักษณ์ทางทหาร (MIL-STD-2525)</span>
+              </label>
+            </div>
           </div>
-          <div className="checkbox-row" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-            <label className="checkbox-inline">
-              <input
-                type="checkbox"
-                checked={showBoundaries}
-                onChange={(e) => setShowBoundaries(e.target.checked)}
-              />
-              <span>แสดงเส้นเขตตำบล</span>
-            </label>
-            <label className="checkbox-inline">
-              <input
-                type="checkbox"
-                checked={useMilSymbol}
-                onChange={(e) => setUseMilSymbol(e.target.checked)}
-              />
-              <span>สัญลักษณ์ทางทหาร (MIL-STD-2525)</span>
-            </label>
-          </div>
+          <LeafletMap
+            mode="overview"
+            incidents={filtered}
+            categories={settings.categories}
+            selectedId={selectedId}
+            onSelectIncident={(id) => setSelectedId(id)}
+            showBoundaries={showBoundaries}
+            markerStyle={useMilSymbol ? 'milsymbol' : 'pin'}
+            offlinePmtilesUrl={settings.offlinePmtilesUrl}
+            height="390px"
+          />
         </div>
-        <LeafletMap
-          mode="overview"
-          incidents={filtered}
-          categories={settings.categories}
-          selectedId={selectedId}
-          onSelectIncident={(id) => setSelectedId(id)}
-          showBoundaries={showBoundaries}
-          markerStyle={useMilSymbol ? 'milsymbol' : 'pin'}
-          offlinePmtilesUrl={settings.offlinePmtilesUrl}
-          height="390px"
-        />
-      </div>
+      )}
 
       {/* Incidents Table */}
       <div className="gov-card table-card">
@@ -472,6 +484,19 @@ export function MapAndListPage({
                       </td>
                       <td className="nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="row-actions">
+                          {item.lat !== null && item.lng !== null && (
+                            <button
+                              type="button"
+                              className="btn-xs btn-outline"
+                              onClick={() => {
+                                setSelectedId(item.id);
+                                setShowMap(true);
+                              }}
+                              title="เปิดแผนที่และโฟกัสพิกัดรายการนี้"
+                            >
+                              <MapPin size={12} aria-hidden="true" /> พิกัด
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn-xs btn-outline"
