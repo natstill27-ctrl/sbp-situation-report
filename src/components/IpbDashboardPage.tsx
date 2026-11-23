@@ -38,6 +38,7 @@ import {
   THAI_MONTHS_SHORT,
   extractWatchAdvisory,
   formatThaiDateTime,
+  formatWatchAreasSummary,
   getCurrentLocalDateTimeInput,
   isWatchAdvisoryCategory,
   isWatchAlertActive,
@@ -834,12 +835,20 @@ export function IpbDashboardPage({
                         w.watchStart && w.watchEnd && w.watchStart !== w.watchEnd
                           ? `${formatThaiDateTime(w.watchStart, { includeTime: false })} – ${formatThaiDateTime(w.watchEnd, { includeTime: false })}`
                           : formatThaiDateTime(w.watchStart || w.reportedAt, { includeTime: false });
+                      const areaSummary = formatWatchAreasSummary(w.areas, 4);
+                      const fullAreaSummary = formatWatchAreasSummary(w.areas);
                       return (
-                        <span key={w.id} className="c2-watch-pill">
-                          {w.threatType} ({w.areas.length} อ. | {win})
+                        <span key={w.id} className="c2-watch-pill" title={fullAreaSummary}>
+                          {w.threatType}
+                          {areaSummary ? ` • ${areaSummary}` : ''} ({win})
                         </span>
                       );
                     })}
+                    {activeWatchAlerts.length > 3 && (
+                      <span className="c2-watch-pill">
+                        +อีก {activeWatchAlerts.length - 3} ข่าว
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

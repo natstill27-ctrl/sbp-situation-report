@@ -39,6 +39,7 @@ import {
   extractPaperMetadata,
   extractWatchAdvisory,
   formatThaiDateTime,
+  formatWatchAreasSummary,
   getCurrentLocalDateTimeInput,
   isWatchAlertActive,
 } from '../utils/thaiDate';
@@ -2042,7 +2043,7 @@ export function IncidentFormPage({
                         </div>
                         <div className="cell-area" style={{ marginBottom: 4 }}>
                           พื้นที่ ({w.areas.length} อำเภอ):{' '}
-                          {w.areas.map((a) => `อ.${a.district}`).join(', ')}
+                          {formatWatchAreasSummary(w.areas)}
                         </div>
                         <div className="details-clamp" title={w.details}>
                           {w.details}

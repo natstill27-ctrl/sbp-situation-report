@@ -29,6 +29,7 @@ import {
   extractPaperMetadata,
   extractWatchAdvisory,
   formatThaiDateTime,
+  formatWatchAreasSummary,
   fromThaiDigits,
   isWatchAlertWithinRecentDays,
   toThaiDigits,
@@ -1011,5 +1012,39 @@ describe('Hierarchical Multi-Province Report, Area Precision & Aggregate Pull Gu
         anchor
       )
     ).toBe(false);
+  });
+
+  it('formats watched districts and provinces compactly in Thai via formatWatchAreasSummary', () => {
+    expect(formatWatchAreasSummary([{ province: 'ปัตตานี', district: 'ยะรัง' }])).toBe(
+      'อ.ยะรัง จว.ปัตตานี'
+    );
+
+    expect(
+      formatWatchAreasSummary([
+        { province: 'นราธิวาส', district: 'ยี่งอ' },
+        { province: 'นราธิวาส', district: 'ตากใบ' },
+      ])
+    ).toBe('อ.ยี่งอ, อ.ตากใบ จว.นราธิวาส');
+
+    expect(
+      formatWatchAreasSummary([
+        { province: 'ปัตตานี', district: 'ยะรัง' },
+        { province: 'ยะลา', district: 'รามัน' },
+      ])
+    ).toBe('อ.ยะรัง จว.ปัตตานี / อ.รามัน จว.ยะลา');
+
+    expect(formatWatchAreasSummary([{ province: 'ยะลา', district: '' }])).toBe('จว.ยะลา');
+
+    expect(
+      formatWatchAreasSummary(
+        [
+          { province: 'นราธิวาส', district: 'ยี่งอ' },
+          { province: 'นราธิวาส', district: 'ตากใบ' },
+          { province: 'นราธิวาส', district: 'สุไหงโก-ลก' },
+          { province: 'นราธิวาส', district: 'ระแงะ' },
+        ],
+        2
+      )
+    ).toBe('อ.ยี่งอ, อ.ตากใบ จว.นราธิวาส +อีก 2 พื้นที่');
   });
 });

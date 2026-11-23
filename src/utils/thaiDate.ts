@@ -1111,6 +1111,65 @@ export function isWatchAlertWithinRecentDays(
 }
 
 /**
+ * Format watched target areas into a compact Thai summary grouped by province
+ * (e.g. `อ.ยี่งอ, อ.ตากใบ จว.นราธิวาส` or `อ.ยะรัง จว.ปัตตานี / อ.รามัน จว.ยะลา`).
+ */
+export function formatWatchAreasSummary(
+  areas: WatchAreaTarget[],
+  maxItems?: number
+): string {
+  if (!areas || areas.length === 0) return '';
+
+  const seen = new Set<string>();
+  const unique: WatchAreaTarget[] = [];
+  for (const a of areas) {
+    const province = (a.province || '').trim();
+    const district = (a.district || '').trim();
+    const subdistrict = (a.subdistrict || '').trim();
+    if (!province && !district && !subdistrict) continue;
+    const key = `${province}|${district}|${subdistrict}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push({ province, district, ...(subdistrict ? { subdistrict } : {}) });
+    }
+  }
+  if (unique.length === 0) return '';
+
+  const limit = maxItems && maxItems > 0 ? maxItems : unique.length;
+  const shown = unique.slice(0, limit);
+  const remaining = Math.max(0, unique.length - shown.length);
+
+  const byProvince = new Map<string, string[]>();
+  for (const a of shown) {
+    const prov = a.province || '';
+    if (!byProvince.has(prov)) {
+      byProvince.set(prov, []);
+    }
+    const label = [
+      a.subdistrict ? `ต.${a.subdistrict}` : '',
+      a.district ? `อ.${a.district}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    if (label) {
+      byProvince.get(prov)!.push(label);
+    }
+  }
+
+  const parts: string[] = [];
+  for (const [prov, items] of byProvince.entries()) {
+    if (items.length > 0) {
+      parts.push(`${items.join(', ')}${prov ? ` จว.${prov}` : ''}`);
+    } else if (prov) {
+      parts.push(`จว.${prov}`);
+    }
+  }
+
+  const summary = parts.join(' / ');
+  return remaining > 0 ? `${summary} +อีก ${remaining} พื้นที่` : summary;
+}
+
+/**
  * Parse Thai intelligence watch advisories containing multi-district target lists,
  * watch date windows (same-month or cross-month), and threat type.
  */

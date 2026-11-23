@@ -2325,8 +2325,8 @@ html.high-contrast .quick-edit-box {
 
 .c2-watch-pill {
   display: inline-block;
-  padding: 0.12rem 0.5rem;
-  border-radius: 999px;
+  padding: 0.14rem 0.55rem;
+  border-radius: 12px;
   font-size: 0.75rem;
   font-weight: 600;
   background: rgba(239, 68, 68, 0.22);
