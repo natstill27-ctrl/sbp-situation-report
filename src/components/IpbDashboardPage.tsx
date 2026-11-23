@@ -145,22 +145,40 @@ export function IpbDashboardPage({
 
   const combinedWatchAlerts = useMemo<WatchAlertRecord[]>(() => {
     const list: WatchAlertRecord[] = [...watchAlerts];
+    const existingIds = new Set(watchAlerts.map((w) => w.id));
+    const existingPrefixes = watchAlerts
+      .map((w) => (w.details || '').trim().slice(0, 40))
+      .filter((p) => p.length >= 12);
+
     for (const item of incidents) {
       if (!isWatchAdvisoryCategory(item.category)) continue;
+      const histId = `WATCH-HIST-${item.id}`;
+      const detailsPrefix = (item.details || '').trim().slice(0, 40);
+      if (
+        existingIds.has(histId) ||
+        existingIds.has(item.id) ||
+        (detailsPrefix.length >= 12 && existingPrefixes.includes(detailsPrefix))
+      ) {
+        continue;
+      }
+
       const parsed = extractWatchAdvisory(item.details);
       const areas =
         parsed.areas.length > 0
           ? parsed.areas
-          : item.province && item.district
-            ? [{ province: item.province, district: item.district }]
+          : item.province
+            ? [{ province: item.province, district: item.district || '' }]
             : [];
       if (areas.length === 0) continue;
-      const dateStr = (item.occurredAt || item.createdAt || '').slice(0, 10);
+      const dateStr = (item.occurredAt || '').slice(0, 10);
+      const reportedAt = parsed.reportedAt || dateStr;
+      const watchStart = parsed.watchStart || reportedAt;
+      const watchEnd = parsed.watchEnd || watchStart;
       list.push({
         id: `HIST-${item.id}`,
-        reportedAt: parsed.reportedAt || dateStr,
-        watchStart: parsed.watchStart || parsed.reportedAt || dateStr,
-        watchEnd: parsed.watchEnd || parsed.reportedAt || dateStr,
+        reportedAt,
+        watchStart,
+        watchEnd,
         areas,
         threatType: parsed.threatType,
         alertLevel: parsed.alertLevel,

@@ -7,7 +7,9 @@ import {
   Layers,
   LocateFixed,
   MapPin,
+  Pencil,
   Plus,
+  RefreshCw,
   RotateCcw,
   Send,
   ShieldAlert,
@@ -24,8 +26,10 @@ import type {
   WatchAlertLevel,
   WatchAlertRecord,
   WatchAreaTarget,
+  WatchAuditResult,
 } from '../types/incident';
 import { buildParsedCoordinate, parseCoordinateInput } from '../utils/coordinates';
+import type { GasPullResult } from '../utils/gasSync';
 import {
   getCenterOfArea,
   getDistrictsByProvince,
@@ -35,19 +39,23 @@ import {
   matchAreaByThaiNames,
 } from '../utils/geoLookup';
 import {
+  auditWatchAlerts,
   extractMultiAreaPaper,
   extractPaperMetadata,
   extractWatchAdvisory,
   formatThaiDateTime,
   formatWatchAreasSummary,
   getCurrentLocalDateTimeInput,
+  isWatchAdvisoryCategory,
   isWatchAlertActive,
+  reparseWatchAlert,
 } from '../utils/thaiDate';
 import { formatIncidentForLine, formatIncidentForPaper } from '../utils/exportUtils';
 import { LeafletMap, type PreviewPin } from './LeafletMap';
 
 interface IncidentFormPageProps {
   settings: AppSettings;
+  incidents?: IncidentRecord[];
   editingIncident: IncidentRecord | null;
   onCancelEdit: () => void;
   onSaveIncident: (record: IncidentRecord) => Promise<IncidentRecord>;
@@ -55,6 +63,9 @@ interface IncidentFormPageProps {
   lastSavedRecord: IncidentRecord | null;
   watchAlerts?: WatchAlertRecord[];
   onSaveWatchAlert?: (alert: WatchAlertRecord) => Promise<WatchAlertRecord>;
+  onSaveWatchAlertsBatch?: (alerts: WatchAlertRecord[]) => Promise<WatchAlertRecord[]>;
+  onQuickUpdateIncidentBatch?: (records: IncidentRecord[]) => Promise<IncidentRecord[]>;
+  onPullFromGas?: () => Promise<GasPullResult>;
   onDeleteWatchAlert?: (id: string) => Promise<void>;
 }
 
@@ -69,6 +80,7 @@ const FORMAT_LABELS: Record<ParsedCoordinate['format'], string> = {
 
 export function IncidentFormPage({
   settings,
+  incidents = [],
   editingIncident,
   onCancelEdit,
   onSaveIncident,
@@ -76,6 +88,9 @@ export function IncidentFormPage({
   lastSavedRecord,
   watchAlerts = [],
   onSaveWatchAlert,
+  onSaveWatchAlertsBatch,
+  onQuickUpdateIncidentBatch,
+  onPullFromGas,
   onDeleteWatchAlert,
 }: IncidentFormPageProps) {
   const [entryMode, setEntryMode] = useState<'single' | 'batch' | 'watch'>('single');
@@ -133,6 +148,16 @@ export function IncidentFormPage({
   const [watchHints, setWatchHints] = useState<string[]>([]);
   const [watchError, setWatchError] = useState('');
   const [watchSuccessBanner, setWatchSuccessBanner] = useState('');
+  const [editingWatchId, setEditingWatchId] = useState<string | null>(null);
+  const [regeocodingWatch, setRegeocodingWatch] = useState(false);
+  const [watchAuditReport, setWatchAuditReport] = useState<{
+    checkedCount: number;
+    updatedWatchCount: number;
+    promotedLegacyCount: number;
+    updatedIncidentCount: number;
+    activeAlerts: WatchAlertRecord[];
+    flagged: Array<{ alert: WatchAlertRecord; result: WatchAuditResult }>;
+  } | null>(null);
 
   const provinces = useMemo(() => getTargetProvinces(), []);
   const districts = useMemo(() => (province ? getDistrictsByProvince(province) : []), [province]);
@@ -866,11 +891,21 @@ export function IncidentFormPage({
     setWatchError('');
   };
 
-  const handleRemoveWatchArea = (prov: string, dist: string) => {
-    setWatchAreas((prev) => prev.filter((a) => !(a.province === prov && a.district === dist)));
+  const handleRemoveWatchArea = (prov: string, dist: string, sub?: string) => {
+    setWatchAreas((prev) =>
+      prev.filter(
+        (a) =>
+          !(
+            a.province === prov &&
+            a.district === dist &&
+            (a.subdistrict || '') === (sub || '')
+          )
+      )
+    );
   };
 
   const handleResetWatch = () => {
+    setEditingWatchId(null);
     setWatchRawText('');
     setWatchReportedAt(todayDateDefault);
     setWatchStart(todayDateDefault);
@@ -881,6 +916,193 @@ export function IncidentFormPage({
     setWatchHints([]);
     setWatchError('');
     setWatchSuccessBanner('');
+  };
+
+  const handleEditWatchAlert = (w: WatchAlertRecord) => {
+    setEditingWatchId(w.id);
+    setWatchRawText(w.details);
+    setWatchReportedAt(w.reportedAt || todayDateDefault);
+    setWatchStart(w.watchStart || w.reportedAt || todayDateDefault);
+    setWatchEnd(w.watchEnd || w.watchStart || w.reportedAt || todayDateDefault);
+    setWatchThreatType(w.threatType);
+    setWatchAlertLevel(w.alertLevel);
+    setWatchAreas(w.areas);
+    setWatchHints([`กำลังแก้ไขข่าวเฝ้าระวัง ${w.id}`]);
+    setWatchError('');
+    setWatchSuccessBanner('');
+    document.getElementById('watch-raw-input')?.focus();
+  };
+
+  const handleRegeocodeAndAuditWatch = async () => {
+    setWatchError('');
+    setWatchSuccessBanner('');
+    setRegeocodingWatch(true);
+    try {
+      let sourceIncidents = incidents;
+      let sourceWatches = watchAlerts;
+
+      const hasGasUrl = Boolean((settings.gasFetchUrl || settings.gasWebhookUrl).trim());
+      if (onPullFromGas && hasGasUrl) {
+        const pullRes = await onPullFromGas();
+        if (!pullRes.ok) {
+          setWatchError(
+            `ดึงข้อมูลจากระบบเดิมไม่สำเร็จ: ${pullRes.message} (ดำเนินการตรวจสอบจากข้อมูลในเครื่องแทน)`
+          );
+        } else {
+          const incMap = new Map(sourceIncidents.map((i) => [i.id, i]));
+          for (const r of pullRes.records) incMap.set(r.id, r);
+          sourceIncidents = Array.from(incMap.values());
+
+          const watchMap = new Map(sourceWatches.map((w) => [w.id, w]));
+          for (const w of pullRes.watchAlerts || []) watchMap.set(w.id, w);
+          sourceWatches = Array.from(watchMap.values());
+        }
+      }
+
+      const watchToSaveMap = new Map<string, WatchAlertRecord>();
+      let updatedWatchCount = 0;
+
+      const workingWatches = sourceWatches.map((w) => {
+        const reparsed = reparseWatchAlert(w);
+        if (reparsed.updated !== w) {
+          updatedWatchCount++;
+          watchToSaveMap.set(reparsed.updated.id, reparsed.updated);
+        }
+        return reparsed.updated;
+      });
+
+      const existingIds = new Set(workingWatches.map((w) => w.id));
+      const existingPrefixes = workingWatches
+        .map((w) => (w.details || '').trim().slice(0, 40))
+        .filter((p) => p.length >= 12);
+
+      const incidentsToUpdate: IncidentRecord[] = [];
+      let promotedLegacyCount = 0;
+      const nowIso = new Date().toISOString();
+
+      for (const item of sourceIncidents) {
+        if (!isWatchAdvisoryCategory(item.category)) continue;
+        const parsed = extractWatchAdvisory(item.details);
+        const targetArea = parsed.areas[0];
+
+        if (targetArea) {
+          const areaMatches =
+            item.province === targetArea.province &&
+            (!targetArea.district || item.district === targetArea.district) &&
+            (!targetArea.subdistrict || item.subdistrict === targetArea.subdistrict);
+          if (item.lat === null || item.lng === null || !areaMatches) {
+            const center = getCenterOfArea(
+              targetArea.province,
+              targetArea.district || undefined,
+              targetArea.subdistrict || undefined
+            );
+            if (center) {
+              const coord = buildParsedCoordinate(
+                center.lat,
+                center.lng,
+                'map-pick',
+                `${center.lat}, ${center.lng}`
+              );
+              incidentsToUpdate.push({
+                ...item,
+                province: targetArea.province,
+                district: targetArea.district,
+                subdistrict: targetArea.subdistrict || '',
+                inTargetArea: true,
+                lat: coord.lat,
+                lng: coord.lng,
+                mgrs: coord.mgrs,
+                utm: coord.utm,
+                coordinateRaw: `${coord.lat}, ${coord.lng}`,
+              });
+            }
+          }
+        }
+
+        const histId = `WATCH-HIST-${item.id}`;
+        const prefix = (item.details || '').trim().slice(0, 40);
+        const alreadyCovered =
+          existingIds.has(histId) ||
+          existingIds.has(item.id) ||
+          (prefix.length >= 12 && existingPrefixes.includes(prefix));
+
+        const watchAreasList =
+          parsed.areas.length > 0
+            ? parsed.areas
+            : item.province
+              ? [{ province: item.province, district: item.district || '' }]
+              : [];
+
+        if (!alreadyCovered && watchAreasList.length > 0) {
+          const dateStr = (item.occurredAt || '').slice(0, 10);
+          const repDate = parsed.reportedAt || dateStr;
+          const wStart = parsed.watchStart || repDate;
+          const wEnd = parsed.watchEnd || wStart;
+          const promoted: WatchAlertRecord = {
+            id: histId,
+            reportedAt: repDate,
+            watchStart: wStart,
+            watchEnd: wEnd,
+            areas: watchAreasList,
+            threatType: parsed.threatType,
+            alertLevel: parsed.alertLevel,
+            details: item.details,
+            reporter: item.reporter || '-',
+            createdAt: item.createdAt || nowIso,
+            updatedAt: nowIso,
+            syncStatus: 'pending',
+          };
+          watchToSaveMap.set(promoted.id, promoted);
+          workingWatches.push(promoted);
+          existingIds.add(promoted.id);
+          if (prefix.length >= 12) existingPrefixes.push(prefix);
+          promotedLegacyCount++;
+        }
+      }
+
+      const watchToSave = Array.from(watchToSaveMap.values());
+      if (watchToSave.length > 0) {
+        if (onSaveWatchAlertsBatch) {
+          const savedList = await onSaveWatchAlertsBatch(watchToSave);
+          for (const s of savedList) {
+            const idx = workingWatches.findIndex((w) => w.id === s.id);
+            if (idx >= 0) workingWatches[idx] = s;
+          }
+        } else if (onSaveWatchAlert) {
+          for (const w of watchToSave) {
+            const s = await onSaveWatchAlert(w);
+            const idx = workingWatches.findIndex((item) => item.id === s.id);
+            if (idx >= 0) workingWatches[idx] = s;
+          }
+        }
+      }
+
+      if (incidentsToUpdate.length > 0 && onQuickUpdateIncidentBatch) {
+        await onQuickUpdateIncidentBatch(incidentsToUpdate);
+      }
+
+      const auditResults = auditWatchAlerts(workingWatches);
+      const auditMap = new Map(auditResults.map((r) => [r.id, r]));
+      const activeAlerts = workingWatches.filter(
+        (w) => auditMap.get(w.id)?.status === 'active'
+      );
+      const flagged = workingWatches
+        .map((alert) => ({ alert, result: auditMap.get(alert.id)! }))
+        .filter(({ result }) =>
+          result.issues.some((iss) => iss.severity === 'error' || iss.severity === 'warn')
+        );
+
+      setWatchAuditReport({
+        checkedCount: workingWatches.length,
+        updatedWatchCount,
+        promotedLegacyCount,
+        updatedIncidentCount: incidentsToUpdate.length,
+        activeAlerts,
+        flagged,
+      });
+    } finally {
+      setRegeocodingWatch(false);
+    }
   };
 
   const handleSubmitWatch = async (e: React.FormEvent) => {
@@ -903,8 +1125,13 @@ export function IncidentFormPage({
     }
 
     const nowIso = new Date().toISOString();
+    const existingWatch = editingWatchId
+      ? watchAlerts.find((w) => w.id === editingWatchId)
+      : undefined;
     const record: WatchAlertRecord = {
-      id: `WATCH-${new Date().getFullYear() + 543}-${String(Date.now()).slice(-6)}`,
+      id:
+        editingWatchId ||
+        `WATCH-${new Date().getFullYear() + 543}-${String(Date.now()).slice(-6)}`,
       reportedAt: watchReportedAt || todayDateDefault,
       watchStart: watchStart || watchReportedAt || todayDateDefault,
       watchEnd: watchEnd || watchStart || watchReportedAt || todayDateDefault,
@@ -913,7 +1140,7 @@ export function IncidentFormPage({
       alertLevel: watchAlertLevel,
       details: watchRawText.trim(),
       reporter: reporter.trim(),
-      createdAt: nowIso,
+      createdAt: existingWatch?.createdAt || nowIso,
       updatedAt: nowIso,
       syncStatus: 'pending',
     };
@@ -923,9 +1150,10 @@ export function IncidentFormPage({
       const saved = await onSaveWatchAlert(record);
       setWatchSuccessBanner(
         saved.syncStatus === 'synced'
-          ? `บันทึกพื้นที่เฝ้าระวัง ${saved.id} (${saved.areas.length} อำเภอ) และซิงก์เข้าแท็บแยกแล้ว`
-          : `บันทึกพื้นที่เฝ้าระวัง ${saved.id} (${saved.areas.length} อำเภอ) ลงเครื่องเรียบร้อย (ไม่นับปนกับสถิติเหตุจริง)`
+          ? `${editingWatchId ? 'อัปเดต' : 'บันทึก'}พื้นที่เฝ้าระวัง ${saved.id} (${saved.areas.length} พื้นที่) และซิงก์เข้าแท็บแยกแล้ว`
+          : `${editingWatchId ? 'อัปเดต' : 'บันทึก'}พื้นที่เฝ้าระวัง ${saved.id} (${saved.areas.length} พื้นที่) ลงเครื่องเรียบร้อย (ไม่นับปนกับสถิติเหตุจริง)`
       );
+      setEditingWatchId(null);
       setWatchRawText('');
       setWatchAreas([]);
       setWatchHints([]);
@@ -1883,21 +2111,33 @@ export function IncidentFormPage({
                 </span>
                 {watchAreas.length > 0 ? (
                   <div className="watch-chip-list">
-                    {watchAreas.map((a) => (
-                      <span key={`${a.province}|${a.district}`} className="watch-chip">
-                        <span>
-                          อ.{a.district} จว.{a.province}
-                        </span>
-                        <button
-                          type="button"
-                          className="watch-chip-remove"
-                          aria-label={`ลบ อ.${a.district}`}
-                          onClick={() => handleRemoveWatchArea(a.province, a.district)}
+                    {watchAreas.map((a) => {
+                      const chipText = [
+                        a.subdistrict ? `ต.${a.subdistrict}` : '',
+                        a.district ? `อ.${a.district}` : '',
+                        a.province ? `จว.${a.province}` : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ');
+                      return (
+                        <span
+                          key={`${a.province}|${a.district}|${a.subdistrict || ''}`}
+                          className="watch-chip"
                         >
-                          <X size={13} aria-hidden="true" />
-                        </button>
-                      </span>
-                    ))}
+                          <span>{chipText}</span>
+                          <button
+                            type="button"
+                            className="watch-chip-remove"
+                            aria-label={`ลบ ${chipText}`}
+                            onClick={() =>
+                              handleRemoveWatchArea(a.province, a.district, a.subdistrict)
+                            }
+                          >
+                            <X size={13} aria-hidden="true" />
+                          </button>
+                        </span>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="field-hint">ยังไม่ได้เลือกอำเภอเฝ้าระวัง (กดสกัดจากข้อความหรือเลือกเพิ่มด้านล่าง)</p>
@@ -1983,15 +2223,125 @@ export function IncidentFormPage({
                   <span>
                     {saving
                       ? 'กำลังบันทึก...'
-                      : `บันทึกพื้นที่เฝ้าระวัง (${watchAreas.length} อำเภอ • แยกจากสถิติเหตุจริง)`}
+                      : editingWatchId
+                        ? `บันทึกการแก้ไขพื้นที่เฝ้าระวัง (${watchAreas.length} พื้นที่)`
+                        : `บันทึกพื้นที่เฝ้าระวัง (${watchAreas.length} พื้นที่ • แยกจากสถิติเหตุจริง)`}
                   </span>
                 </button>
                 <button type="button" className="btn btn-outline" onClick={handleResetWatch}>
                   <RotateCcw size={16} aria-hidden="true" />
-                  <span>ล้างข้อมูล</span>
+                  <span>{editingWatchId ? 'ยกเลิกการแก้ไข' : 'ล้างข้อมูล'}</span>
                 </button>
               </div>
             </form>
+
+            <div className="gov-card">
+              <div className="batch-item-header" style={{ marginBottom: '0.5rem' }}>
+                <div>
+                  <h3 className="card-title" style={{ marginBottom: 2 }}>
+                    ตรวจสอบข่าวเฝ้าระวังเก่า &amp; จับพิกัด/ห้วงเวลาใหม่
+                  </h3>
+                  <p className="cell-sub" style={{ margin: 0 }}>
+                    ดึงข่าวเก่าจาก GAS + ข่าวความเคลื่อนไหวในระบบ มาสกัดอำเภอ/จังหวัดและตรวจห้วงเฝ้าระวังให้ตรง
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={regeocodingWatch}
+                  onClick={() => void handleRegeocodeAndAuditWatch()}
+                >
+                  <RefreshCw size={15} aria-hidden="true" />
+                  <span>
+                    {regeocodingWatch
+                      ? 'กำลังดึงและตรวจข้อมูล...'
+                      : 'ดึงข่าวเก่ามาจับพิกัดใหม่ & ตรวจห้วงเฝ้าระวัง'}
+                  </span>
+                </button>
+              </div>
+
+              {watchAuditReport && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.5rem' }}>
+                  <div className="inline-alert info">
+                    <CheckCircle2 size={16} aria-hidden="true" />
+                    <span>
+                      ตรวจข่าวเฝ้าระวังแล้ว {watchAuditReport.checkedCount} รายการ • ปรับปรุงพื้นที่/ห้วง{' '}
+                      {watchAuditReport.updatedWatchCount} รายการ • นำเข้าจากข่าวเก่า{' '}
+                      {watchAuditReport.promotedLegacyCount} รายการ • อัปเดตพิกัดหมุด{' '}
+                      {watchAuditReport.updatedIncidentCount} จุด
+                    </span>
+                  </div>
+
+                  <div className="inline-alert info" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
+                    <strong>
+                      ห้วงเฝ้าระวังที่กำลัง Active วันนี้ ({watchAuditReport.activeAlerts.length} ข่าว):
+                    </strong>
+                    {watchAuditReport.activeAlerts.length === 0 ? (
+                      <span className="cell-sub">ไม่มีข่าวเฝ้าระวังที่อยู่ในห้วงเวลาวันนี้</span>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: '1.15rem', fontSize: '0.86rem' }}>
+                        {watchAuditReport.activeAlerts.map((w) => (
+                          <li key={w.id}>
+                            <strong>{w.threatType}</strong> •{' '}
+                            {formatWatchAreasSummary(w.areas) || 'ยังไม่ระบุพื้นที่'} (
+                            {formatThaiDateTime(w.watchStart, { includeTime: false })} –{' '}
+                            {formatThaiDateTime(w.watchEnd, { includeTime: false })})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  {watchAuditReport.flagged.length > 0 ? (
+                    <div className="inline-alert warn" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.45rem' }}>
+                      <strong>
+                        พบจุดที่ควรตรวจสอบห้วงเวลา/พื้นที่ ({watchAuditReport.flagged.length} รายการ):
+                      </strong>
+                      {watchAuditReport.flagged.map(({ alert, result }) => (
+                        <div
+                          key={alert.id}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            gap: '0.5rem',
+                            paddingTop: '0.35rem',
+                            borderTop: '1px solid rgba(180, 83, 9, 0.2)',
+                          }}
+                        >
+                          <div style={{ fontSize: '0.84rem' }}>
+                            <div>
+                              <strong>{alert.threatType}</strong> ({alert.id}) •{' '}
+                              {formatWatchAreasSummary(alert.areas) || 'ไม่มีพื้นที่'}
+                            </div>
+                            <div className="cell-sub">
+                              {result.issues
+                                .filter((i) => i.severity !== 'info')
+                                .map((i) => i.message)
+                                .join(' | ')}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn-xs btn-outline"
+                            onClick={() => handleEditWatchAlert(alert)}
+                          >
+                            <Pencil size={12} aria-hidden="true" />
+                            <span>แก้ไข</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="inline-alert info">
+                      <CheckCircle2 size={15} aria-hidden="true" />
+                      <span>ไม่พบความผิดปกติของห้วงเวลาหรือพื้นที่เฝ้าระวัง</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {watchAlerts.length > 0 && (
               <div className="gov-card">
@@ -2026,20 +2376,31 @@ export function IncidentFormPage({
                               {formatThaiDateTime(w.watchEnd, { includeTime: false })}
                             </span>
                           </div>
-                          {onDeleteWatchAlert && (
+                          <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
                             <button
                               type="button"
-                              className="btn-xs btn-outline btn-danger-outline"
-                              onClick={() => {
-                                if (window.confirm(`ต้องการลบข่าวเฝ้าระวัง ${w.id} ใช่หรือไม่?`)) {
-                                  void onDeleteWatchAlert(w.id);
-                                }
-                              }}
-                              aria-label={`ลบ ${w.id}`}
+                              className="btn-xs btn-outline"
+                              onClick={() => handleEditWatchAlert(w)}
+                              aria-label={`แก้ไข ${w.id}`}
+                              title="แก้ไขข่าวเฝ้าระวังนี้"
                             >
-                              <Trash2 size={13} aria-hidden="true" />
+                              <Pencil size={13} aria-hidden="true" />
                             </button>
-                          )}
+                            {onDeleteWatchAlert && (
+                              <button
+                                type="button"
+                                className="btn-xs btn-outline btn-danger-outline"
+                                onClick={() => {
+                                  if (window.confirm(`ต้องการลบข่าวเฝ้าระวัง ${w.id} ใช่หรือไม่?`)) {
+                                    void onDeleteWatchAlert(w.id);
+                                  }
+                                }}
+                                aria-label={`ลบ ${w.id}`}
+                              >
+                                <Trash2 size={13} aria-hidden="true" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <div className="cell-area" style={{ marginBottom: 4 }}>
                           พื้นที่ ({w.areas.length} อำเภอ):{' '}

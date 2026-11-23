@@ -360,6 +360,31 @@ export function App() {
     return savedRecord;
   };
 
+  const handleSaveWatchAlertsBatch = async (
+    alerts: WatchAlertRecord[]
+  ): Promise<WatchAlertRecord[]> => {
+    if (alerts.length === 0) return [];
+    await saveWatchAlertsBatch(alerts);
+    setWatchAlerts(await loadWatchAlerts());
+
+    if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
+      const updatedAlerts: WatchAlertRecord[] = [];
+      for (const item of alerts) {
+        const syncRes = await sendWatchAlertToGas(item, settings);
+        updatedAlerts.push({
+          ...item,
+          syncStatus: syncRes.ok ? 'synced' : 'failed',
+          syncError: syncRes.ok ? undefined : syncRes.message,
+        });
+      }
+      await saveWatchAlertsBatch(updatedAlerts);
+      setWatchAlerts(await loadWatchAlerts());
+      return updatedAlerts;
+    }
+
+    return alerts;
+  };
+
   const handleDeleteWatchAlert = async (id: string) => {
     await deleteWatchAlert(id);
     setWatchAlerts((prev) => prev.filter((item) => item.id !== id));
@@ -430,6 +455,7 @@ export function App() {
               {activeTab === 'entry' && (
                 <IncidentFormPage
                   settings={settings}
+                  incidents={incidents}
                   editingIncident={editingIncident}
                   onCancelEdit={() => setEditingIncident(null)}
                   onSaveIncident={handleSaveIncident}
@@ -437,6 +463,9 @@ export function App() {
                   lastSavedRecord={lastSavedRecord}
                   watchAlerts={watchAlerts}
                   onSaveWatchAlert={handleSaveWatchAlert}
+                  onSaveWatchAlertsBatch={handleSaveWatchAlertsBatch}
+                  onQuickUpdateIncidentBatch={handleQuickUpdateBatch}
+                  onPullFromGas={() => handlePullFromGas()}
                   onDeleteWatchAlert={handleDeleteWatchAlert}
                 />
               )}

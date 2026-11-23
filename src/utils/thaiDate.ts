@@ -7,9 +7,11 @@ import type {
   WatchAlertLevel,
   WatchAlertRecord,
   WatchAreaTarget,
+  WatchAuditIssue,
+  WatchAuditResult,
 } from '../types/incident';
 import { parseCoordinateInput } from './coordinates';
-import { getCenterOfArea, matchAreaByThaiNames } from './geoLookup';
+import { getAllTargetDistricts, getCenterOfArea, matchAreaByThaiNames } from './geoLookup';
 
 const THAI_DIGITS = ['๐', '๑', '๒', '๓', '๔', '๕', '๖', '๗', '๘', '๙'] as const;
 
@@ -126,37 +128,64 @@ export function extractPaperMetadata(rawText: string, availableCategories: strin
   const normalized = fromThaiDigits(rawText).replace(/\s+/g, ' ').trim();
   const result: PaperParseResult = { matchedHints: [] };
 
-  // 1. Extract Thai date e.g. "9 พ.ย.69" or "9 พฤศจิกายน 2569"
-  const dateRegex = new RegExp(`(?:^|\\s)(\\d{1,2})\\s*(${THAI_MONTH_TOKEN})\\s*(\\d{2,4})`, 'i');
+  // 1. Extract Thai date e.g. "9 พ.ย.69", "9 พฤศจิกายน พ.ศ. 2569", or "9/11/2569"
+  const dateRegex = new RegExp(
+    `(?:^|\\s)(\\d{1,2})\\s*(${THAI_MONTH_TOKEN})\\s*(?:พ\\.ศ\\.?\\s*)?(\\d{2,4})`,
+    'i'
+  );
   const dateMatch = normalized.match(dateRegex);
+  let parsedYmd: { yearAD: number; month: number; day: number; label: string } | null = null;
+
   if (dateMatch) {
     const day = Number(dateMatch[1]);
     const month = matchThaiMonth(dateMatch[2]);
     let yearBE = Number(dateMatch[3]);
     if (yearBE < 100) yearBE += 2500;
-    const yearAD = yearBE - 543;
+    const yearAD = yearBE >= 2400 ? yearBE - 543 : yearBE;
     if (month && day >= 1 && day <= 31 && yearAD >= 1990 && yearAD <= 2100) {
-      // Optional time e.g. 08.30 น., 08:30, or military 4-digit 0415 - 0530 / เวลา 0415
-      const dottedTimeMatch = normalized.match(/(?:เวลา\s*)?(\d{1,2})[.:](\d{2})\s*น\.?/);
-      const militaryTimeMatch = !dottedTimeMatch
-        ? normalized.match(
-            /(?:เวลา\s*|,\s*|(?:ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)\s*\d{2,4}\s*,?\s*)([01]\d|2[0-3])([0-5]\d)(?=\s*(?:-|–|ถึง|น\.|เกิด|พบ|มี|คนร้าย|เจ้าหน้า|\s|$))(?!\d)/
-          )
-        : null;
-      const hh = dottedTimeMatch
-        ? String(Math.min(23, Number(dottedTimeMatch[1]))).padStart(2, '0')
-        : militaryTimeMatch
-          ? militaryTimeMatch[1]
-          : '08';
-      const mm = dottedTimeMatch
-        ? String(Math.min(59, Number(dottedTimeMatch[2]))).padStart(2, '0')
-        : militaryTimeMatch
-          ? militaryTimeMatch[2]
-          : '00';
-      const pad = (n: number) => String(n).padStart(2, '0');
-      result.occurredAt = `${yearAD}-${pad(month)}-${pad(day)}T${hh}:${mm}`;
-      result.matchedHints.push(`วันที่: ${dateMatch[0].trim()}`);
+      parsedYmd = { yearAD, month, day, label: dateMatch[0].trim() };
     }
+  } else {
+    const slashMatch = normalized.match(/(?:\b|^)(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?!\d)/);
+    if (slashMatch) {
+      const day = Number(slashMatch[1]);
+      const month = Number(slashMatch[2]);
+      const rawYr = Number(slashMatch[3]);
+      const yearAD =
+        rawYr >= 2400
+          ? rawYr - 543
+          : rawYr < 100
+            ? rawYr >= 50
+              ? rawYr + 2500 - 543
+              : 2000 + rawYr
+            : rawYr;
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && yearAD >= 1990 && yearAD <= 2100) {
+        parsedYmd = { yearAD, month, day, label: slashMatch[0].trim() };
+      }
+    }
+  }
+
+  if (parsedYmd) {
+    // Optional time e.g. 08.30 น., 08:30, or military 4-digit 0415 - 0530 / เวลา 0415
+    const dottedTimeMatch = normalized.match(/(?:เวลา\s*)?(\d{1,2})[.:](\d{2})\s*น\.?/);
+    const militaryTimeMatch = !dottedTimeMatch
+      ? normalized.match(
+          /(?:เวลา\s*|,\s*|(?:ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)\s*\d{2,4}\s*,?\s*)([01]\d|2[0-3])([0-5]\d)(?=\s*(?:-|–|ถึง|น\.|เกิด|พบ|มี|คนร้าย|เจ้าหน้า|\s|$))(?!\d)/
+        )
+      : null;
+    const hh = dottedTimeMatch
+      ? String(Math.min(23, Number(dottedTimeMatch[1]))).padStart(2, '0')
+      : militaryTimeMatch
+        ? militaryTimeMatch[1]
+        : '08';
+    const mm = dottedTimeMatch
+      ? String(Math.min(59, Number(dottedTimeMatch[2]))).padStart(2, '0')
+      : militaryTimeMatch
+        ? militaryTimeMatch[2]
+        : '00';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    result.occurredAt = `${parsedYmd.yearAD}-${pad(parsedYmd.month)}-${pad(parsedYmd.day)}T${hh}:${mm}`;
+    result.matchedHints.push(`วันที่: ${parsedYmd.label}`);
   }
 
   // 2. Extract Province / District / Subdistrict (prefer full coherent ต./อ./จว. tuple first)
@@ -1053,16 +1082,24 @@ export function extractMultiAreaPaper(
   };
 }
 
+const YMD_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 /** Determine whether a watch alert is currently active, upcoming, or expired relative to `todayYmd`. */
 export function isWatchAlertActive(
   alert: Pick<WatchAlertRecord, 'watchStart' | 'watchEnd'>,
   todayYmd?: string
 ): 'active' | 'upcoming' | 'expired' {
   const today = todayYmd || getCurrentLocalDateTimeInput().slice(0, 10);
-  const start = (alert.watchStart || alert.watchEnd || '').slice(0, 10);
-  const end = (alert.watchEnd || alert.watchStart || '').slice(0, 10);
-  if (start && today < start) return 'upcoming';
-  if (end && today > end) return 'expired';
+  const rawStart = (alert.watchStart || '').slice(0, 10);
+  const rawEnd = (alert.watchEnd || '').slice(0, 10);
+  const start = YMD_DATE_RE.test(rawStart) ? rawStart : YMD_DATE_RE.test(rawEnd) ? rawEnd : '';
+  const end = YMD_DATE_RE.test(rawEnd) ? rawEnd : YMD_DATE_RE.test(rawStart) ? rawStart : '';
+
+  if (!start && !end) return 'expired';
+
+  const [effStart, effEnd] = start && end && start > end ? [end, start] : [start, end];
+  if (effStart && today < effStart) return 'upcoming';
+  if (effEnd && today > effEnd) return 'expired';
   return 'active';
 }
 
@@ -1169,15 +1206,60 @@ export function formatWatchAreasSummary(
   return remaining > 0 ? `${summary} +อีก ${remaining} พื้นที่` : summary;
 }
 
+function isPlausibleThaiYearToken(raw?: string): boolean {
+  if (!raw) return false;
+  const n = Number(raw);
+  return (n >= 2400 && n <= 2700) || (n >= 1990 && n <= 2100) || (n >= 50 && n <= 99);
+}
+
+function parseThaiYearTokenToAd(raw: string): number {
+  let y = Number(raw);
+  if (y < 100) y += 2500;
+  return y >= 2400 ? y - 543 : y;
+}
+
+function clampValidYmd(yearAd: number, month: number, day: number): string {
+  const maxDay = new Date(yearAd, month, 0).getDate();
+  const clamped = Math.min(Math.max(1, day), maxDay);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${yearAd}-${pad(month)}-${pad(clamped)}`;
+}
+
+const BARE_DISTRICT_MATCHER = (() => {
+  const names = Array.from(
+    new Set([
+      ...getAllTargetDistricts()
+        .map((d) => d.district)
+        .filter((d) => d && d !== 'เมือง'),
+      'สุไหงโกลก',
+      'สุคีริน',
+    ])
+  ).sort((a, b) => b.length - a.length);
+  const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  return new RegExp(
+    `(?:^|[\\s,(/•\\-–]|และ|เขต|พื้นที่|เทศบาลเมือง|เทศบาลนคร)(${escaped})(?=$|[\\s,)/;•\\-–ฯ]|และ|จว\\.|จ\\.|จังหวัด)`,
+    'g'
+  );
+})();
+
+const MUNICIPAL_AREA_ALIASES: Array<[RegExp, WatchAreaTarget]> = [
+  [/เทศบาลนครยะลา|เขตเมืองยะลา/, { province: 'ยะลา', district: 'เมืองยะลา' }],
+  [/เทศบาลเมืองปัตตานี|เขตเมืองปัตตานี/, { province: 'ปัตตานี', district: 'เมืองปัตตานี' }],
+  [/เทศบาลเมืองนราธิวาส|เขตเมืองนราธิวาส/, { province: 'นราธิวาส', district: 'เมืองนราธิวาส' }],
+  [/เทศบาลเมืองเบตง/, { province: 'ยะลา', district: 'เบตง' }],
+  [/เทศบาลเมืองสุไหงโก-?ลก/, { province: 'นราธิวาส', district: 'สุไหงโก-ลก' }],
+];
+
 /**
  * Parse Thai intelligence watch advisories containing multi-district target lists,
- * watch date windows (same-month or cross-month), and threat type.
+ * watch date windows (same-month, cross-month, omitted-year, end-date, or whole-month), and threat type.
  */
 export function extractWatchAdvisory(rawText: string): WatchAdvisoryParseResult {
   const matchedHints: string[] = [];
   const normalized = fromThaiDigits(rawText).replace(/\r\n?/g, '\n').replace(/\s+/g, ' ').trim();
   if (!normalized) {
     return {
+      hasExplicitWindow: false,
       areas: [],
       threatType: 'ความเคลื่อนไหวกลุ่มผู้ก่อเหตุรุนแรง',
       alertLevel: 'medium',
@@ -1192,77 +1274,211 @@ export function extractWatchAdvisory(rawText: string): WatchAdvisoryParseResult 
     matchedHints.push(`วันที่ข่าว: ${formatThaiDateTime(reportedAt, { includeTime: false })}`);
   }
 
-  // 2. Watch window ("ห้วงเฝ้าระวัง [ตั้งแต่] 5 - 16 มี.ค.68" or "25 ก.พ. - 10 มี.ค.68")
+  // 2. Watch window
+  const baseAdYear = reportedAt
+    ? Number(reportedAt.slice(0, 4))
+    : Number(getCurrentLocalDateTimeInput().slice(0, 4));
+  const reportedMonth = reportedAt ? Number(reportedAt.slice(5, 7)) : 0;
+
   let watchStart: string | undefined;
   let watchEnd: string | undefined;
-  const pad = (n: number) => String(n).padStart(2, '0');
+  let hasExplicitWindow = false;
+
+  const WINDOW_PREFIX =
+    '(?:ห้วงเฝ้าระวัง(?:ตั้งแต่|วันที่)?|ห้วงเวลา(?:ตั้งแต่)?|ห้วงวันที่|ในห้วง(?:วันที่)?|ห้วง|ระยะเวลา(?:ตั้งแต่)?|ระหว่าง(?:วันที่)?|ตั้งแต่(?:วันที่)?|ช่วง(?:วันที่|เวลา)?|กำหนดก่อเหตุ(?:ในห้วง|ห้วง)?)';
   const windowPattern = new RegExp(
-    `(?:ห้วงเฝ้าระวัง(?:ตั้งแต่)?|ห้วงเวลา|ระยะเวลา)\\s*(\\d{1,2})(?:\\s*(${THAI_MONTH_TOKEN})(?:\\s*(\\d{2,4}))?)?\\s*(?:-|–|ถึง)\\s*(\\d{1,2})\\s*(${THAI_MONTH_TOKEN})\\s*,?\\s*(\\d{2,4})`
+    `${WINDOW_PREFIX}\\s*(\\d{1,2})(?:\\s*(${THAI_MONTH_TOKEN})(?:\\s*(?:พ\\.ศ\\.?\\s*)?(\\d{2,4}))?)?\\s*(?:-|–|—|ถึง(?:วันที่)?)\\s*(\\d{1,2})\\s*(${THAI_MONTH_TOKEN})(?:\\s*,?\\s*(?:พ\\.ศ\\.?\\s*)?(\\d{2,4}))?`
   );
+  const endOnlyPattern = new RegExp(
+    `(?:จนถึง(?:วันที่)?|ถึงวันที่|ภายใน(?:วันที่)?)\\s*(\\d{1,2})\\s*(${THAI_MONTH_TOKEN})(?:\\s*,?\\s*(?:พ\\.ศ\\.?\\s*)?(\\d{2,4}))?`
+  );
+  const wholeMonthPattern = new RegExp(
+    `(?:ห้วง(?:เดือน)?|ตลอดเดือน|ภายในเดือน|ช่วงเดือน)\\s*(${THAI_MONTH_TOKEN})(?:\\s*,?\\s*(?:พ\\.ศ\\.?\\s*)?(\\d{2,4}))?`
+  );
+
   const windowMatch = normalized.match(windowPattern);
   if (windowMatch) {
     const endDay = Number(windowMatch[4]);
     const endMonth = matchThaiMonth(windowMatch[5]);
-    let endBe = Number(windowMatch[6]);
-    if (endBe < 100) endBe += 2500;
-    const endAd = endBe - 543;
+    const hasEndYear = isPlausibleThaiYearToken(windowMatch[6]);
+    let endAd = hasEndYear ? parseThaiYearTokenToAd(windowMatch[6]) : baseAdYear;
+    if (!hasEndYear && endMonth && reportedMonth > endMonth) {
+      endAd = baseAdYear + 1;
+    }
 
     const startDay = Number(windowMatch[1]);
     const startMonth = windowMatch[2] ? matchThaiMonth(windowMatch[2]) : endMonth;
-    let startAd = endAd;
-    if (windowMatch[3]) {
-      let sBe = Number(windowMatch[3]);
-      if (sBe < 100) sBe += 2500;
-      startAd = sBe - 543;
-    } else if (startMonth && endMonth && startMonth > endMonth) {
+    const hasStartYear = isPlausibleThaiYearToken(windowMatch[3]);
+    let startAd = hasStartYear ? parseThaiYearTokenToAd(windowMatch[3]) : endAd;
+    if (!hasStartYear && startMonth && endMonth && startMonth > endMonth) {
       startAd = endAd - 1;
     }
 
-    if (startMonth && endMonth && startDay >= 1 && startDay <= 31 && endDay >= 1 && endDay <= 31) {
-      watchStart = `${startAd}-${pad(startMonth)}-${pad(startDay)}`;
-      watchEnd = `${endAd}-${pad(endMonth)}-${pad(endDay)}`;
-      matchedHints.push(
-        `ห้วงเฝ้าระวัง: ${formatThaiDateTime(watchStart, { includeTime: false })} – ${formatThaiDateTime(watchEnd, { includeTime: false })}`
-      );
+    if (
+      startMonth &&
+      endMonth &&
+      startDay >= 1 &&
+      startDay <= 31 &&
+      endDay >= 1 &&
+      endDay <= 31 &&
+      endAd >= 1990 &&
+      endAd <= 2100
+    ) {
+      let sYmd = clampValidYmd(startAd, startMonth, startDay);
+      let eYmd = clampValidYmd(endAd, endMonth, endDay);
+      if (sYmd > eYmd) [sYmd, eYmd] = [eYmd, sYmd];
+      watchStart = sYmd;
+      watchEnd = eYmd;
+      hasExplicitWindow = true;
     }
+  } else {
+    const endOnlyMatch = normalized.match(endOnlyPattern);
+    if (endOnlyMatch) {
+      const endDay = Number(endOnlyMatch[1]);
+      const endMonth = matchThaiMonth(endOnlyMatch[2]);
+      const hasEndYear = isPlausibleThaiYearToken(endOnlyMatch[3]);
+      let endAd = hasEndYear ? parseThaiYearTokenToAd(endOnlyMatch[3]) : baseAdYear;
+      if (!hasEndYear && endMonth && reportedMonth > endMonth) {
+        endAd = baseAdYear + 1;
+      }
+      if (endMonth && endDay >= 1 && endDay <= 31 && endAd >= 1990 && endAd <= 2100) {
+        watchEnd = clampValidYmd(endAd, endMonth, endDay);
+        watchStart = reportedAt && reportedAt <= watchEnd ? reportedAt : watchEnd;
+        hasExplicitWindow = true;
+      }
+    } else {
+      const monthMatch = normalized.match(wholeMonthPattern);
+      if (monthMatch) {
+        const month = matchThaiMonth(monthMatch[1]);
+        const hasYear = isPlausibleThaiYearToken(monthMatch[2]);
+        let ad = hasYear ? parseThaiYearTokenToAd(monthMatch[2]) : baseAdYear;
+        if (!hasYear && month && reportedMonth >= 11 && month <= 2) {
+          ad = baseAdYear + 1;
+        }
+        if (month && ad >= 1990 && ad <= 2100) {
+          const pad = (n: number) => String(n).padStart(2, '0');
+          const lastDay = new Date(ad, month, 0).getDate();
+          watchStart = `${ad}-${pad(month)}-01`;
+          watchEnd = `${ad}-${pad(month)}-${pad(lastDay)}`;
+          hasExplicitWindow = true;
+        }
+      }
+    }
+  }
+
+  if (hasExplicitWindow && watchStart && watchEnd) {
+    matchedHints.push(
+      `ห้วงเฝ้าระวัง: ${formatThaiDateTime(watchStart, { includeTime: false })} – ${formatThaiDateTime(watchEnd, { includeTime: false })}`
+    );
   } else if (reportedAt) {
     watchStart = reportedAt;
     watchEnd = reportedAt;
   }
 
-  // 3. Extract all watched districts (prefer text after "พื้นที่เฝ้าระวัง/พื้นที่เพ่งเล็ง/เตรียมก่อเหตุ")
+  // 3. Extract all watched districts (prefer text after anchor phrase)
   const anchorIdx = normalized.search(
-    /พื้นที่เฝ้าระวัง|พื้นที่เพ่งเล็ง|เตรียมการก่อเหตุ|เตรียมก่อเหตุ/
+    /พื้นที่เฝ้าระวัง|พื้นที่เพ่งเล็ง|พื้นที่เป้าหมาย|เตรียมการก่อเหตุ|เตรียมก่อเหตุ|มีแผนก่อเหตุ|แผนก่อเหตุ|ก่อเหตุในพื้นที่|เป้าหมายในพื้นที่/
   );
-  const collectAreasFromSlice = (sliceText: string): WatchAreaTarget[] => {
-    const provMatches = Array.from(
-      sliceText.matchAll(/(?:จว\.|จ\.|จังหวัด)\s*([ก-๙]+(?:\.[ก-๙]*)?)/g)
-    ).map((m) => ({ idx: m.index ?? 0, name: m[1].replace(/ฯ+$/, '').trim() }));
-    const fallbackProv =
-      provMatches[0]?.name ||
-      normalized.match(/(?:จว\.|จ\.|จังหวัด)\s*([ก-๙]+)/)?.[1]?.replace(/ฯ+$/, '').trim() ||
-      '';
 
-    const distRegex = /(?:^|[\s,(])(?:อ\.|อำเภอ|อ,)\s*([ก-๙]+(?:-[ก-๙]+)?)/g;
+  const extractProvMatches = (text: string) =>
+    Array.from(text.matchAll(/(?:จว\.|จ\.|จังหวัด)\s*([ก-๙]+(?:\.[ก-๙]*)?)/g))
+      .map((m) => {
+        const raw = m[1].replace(/ฯ+$/, '').trim();
+        const canonical = matchAreaByThaiNames(raw)?.province || '';
+        return canonical ? { idx: m.index ?? 0, name: canonical } : null;
+      })
+      .filter((x): x is { idx: number; name: string } => Boolean(x));
+
+  const globalProvMatches = extractProvMatches(normalized);
+
+  const collectAreasFromSlice = (sliceText: string): WatchAreaTarget[] => {
+    const provMatches = extractProvMatches(sliceText);
+    const fallbackProv = provMatches[0]?.name || globalProvMatches[0]?.name || '';
     const found: WatchAreaTarget[] = [];
     const seen = new Set<string>();
 
+    const pushArea = (province: string, district: string, subdistrict?: string) => {
+      const key = `${province}|${district}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        found.push(subdistrict ? { province, district, subdistrict } : { province, district });
+      }
+    };
+
+    const resolveNearestProvince = (idx: number): string => {
+      const immediateSuffix = provMatches.find(
+        (p) =>
+          p.idx >= idx &&
+          p.idx - idx <= 35 &&
+          !/(?:อ\.|อำเภอ|อ,)/.test(sliceText.slice(idx + 2, p.idx))
+      );
+      if (immediateSuffix) return immediateSuffix.name;
+
+      let priorProv = '';
+      for (const p of provMatches) {
+        if (p.idx <= idx) priorProv = p.name;
+      }
+      if (priorProv) return priorProv;
+
+      const upcomingProv = provMatches.find((p) => p.idx >= idx)?.name;
+      return upcomingProv || fallbackProv;
+    };
+
+    // 3a. Explicit อ. / อำเภอ / อ, prefixes (also after พื้นที่ or '/')
+    const distRegex =
+      /(?:^|(?<=[\s,(/•\-–]|พื้นที่|เขต|และ))(?:อ\.|อำเภอ|อ,)\s*([ก-๙]+(?:-[ก-๙]+)?(?:\s*โก-?ลก)?)/g;
     for (const m of sliceText.matchAll(distRegex)) {
-      const token = m[1].replace(/ฯ+$/, '').trim();
+      const token = m[1]
+        .replace(/ฯ+$/, '')
+        .replace(/\s+(?=โก-?ลก)/, '')
+        .trim();
       if (!token) continue;
       const mIdx = m.index ?? 0;
-      const upcomingProv = provMatches.find((p) => p.idx >= mIdx)?.name || fallbackProv;
+      const nearestProv = resolveNearestProvince(mIdx);
       const matched =
-        matchAreaByThaiNames(upcomingProv, token) ||
-        (upcomingProv ? matchAreaByThaiNames('', token) : null);
+        token === 'เมือง'
+          ? nearestProv
+            ? matchAreaByThaiNames(nearestProv, 'เมือง')
+            : null
+          : matchAreaByThaiNames('', token) ||
+            (nearestProv ? matchAreaByThaiNames(nearestProv, token) : null);
       if (matched) {
-        const key = `${matched.province}|${matched.district}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          found.push({ province: matched.province, district: matched.district });
-        }
+        pushArea(matched.province, matched.district);
       }
     }
+
+    // 3b. Municipal / urban aliases
+    for (const [pattern, target] of MUNICIPAL_AREA_ALIASES) {
+      if (pattern.test(sliceText)) {
+        pushArea(target.province, target.district);
+      }
+    }
+
+    // 3c. Bare unique Southern Border district names (e.g. comma/paren-separated lists)
+    for (const m of sliceText.matchAll(BARE_DISTRICT_MATCHER)) {
+      const token = m[1]?.trim();
+      if (!token) continue;
+      const matched = matchAreaByThaiNames('', token);
+      if (matched) {
+        pushArea(matched.province, matched.district);
+      }
+    }
+
+    // 3d. Explicit ต. / ตำบล / อบต. subdistricts
+    const subRegex = /(?:^|[\s,(/])(?:ต\.|ตำบล|อบต\.)\s*([ก-๙]{2,})/g;
+    for (const m of sliceText.matchAll(subRegex)) {
+      const subToken = m[1].replace(/ฯ+$/, '').trim();
+      if (!subToken) continue;
+      const mIdx = m.index ?? 0;
+      const nearProv = resolveNearestProvince(mIdx);
+      const matched =
+        (nearProv ? matchAreaByThaiNames(nearProv, '', subToken) : null) ||
+        matchAreaByThaiNames('', '', subToken);
+      if (matched && matched.subdistrict) {
+        pushArea(matched.province, matched.district, matched.subdistrict);
+      }
+    }
+
     return found;
   };
 
@@ -1270,8 +1486,21 @@ export function extractWatchAdvisory(rawText: string): WatchAdvisoryParseResult 
   if (areas.length === 0) {
     areas = collectAreasFromSlice(normalized);
   }
+  if (areas.length === 0) {
+    const sliceForProvs = anchorIdx >= 0 ? normalized.slice(anchorIdx) : normalized;
+    const provCandidates = extractProvMatches(sliceForProvs);
+    const provList = provCandidates.length > 0 ? provCandidates : globalProvMatches;
+    const seenProvs = new Set<string>();
+    for (const p of provList) {
+      if (!seenProvs.has(p.name)) {
+        seenProvs.add(p.name);
+        areas.push({ province: p.name, district: '' });
+      }
+    }
+  }
+
   if (areas.length > 0) {
-    matchedHints.push(`พื้นที่เฝ้าระวัง: ${areas.length} อำเภอ`);
+    matchedHints.push(`พื้นที่เฝ้าระวัง: ${areas.length} พื้นที่`);
   }
 
   // 4. Infer threat type & watch alert level
@@ -1300,9 +1529,191 @@ export function extractWatchAdvisory(rawText: string): WatchAdvisoryParseResult 
     reportedAt,
     watchStart,
     watchEnd,
+    hasExplicitWindow,
     areas,
     threatType,
     alertLevel,
     matchedHints,
   };
+}
+
+function canonicalWatchAreasKey(areas: WatchAreaTarget[]): string {
+  return areas
+    .map((a) => `${a.province}|${a.district}|${a.subdistrict || ''}`)
+    .sort()
+    .join(';');
+}
+
+/**
+ * Re-parse an existing WatchAlertRecord from its `details` text to upgrade missing/legacy
+ * target areas, fix inverted/mismatched watch windows, and refine generic threat types.
+ */
+export function reparseWatchAlert(alert: WatchAlertRecord): {
+  updated: WatchAlertRecord;
+  areasChanged: boolean;
+  windowChanged: boolean;
+  parsed: WatchAdvisoryParseResult;
+} {
+  const parsed = extractWatchAdvisory(alert.details);
+  let nextAreas = alert.areas;
+  let areasChanged = false;
+  if (
+    parsed.areas.length > 0 &&
+    canonicalWatchAreasKey(parsed.areas) !== canonicalWatchAreasKey(alert.areas)
+  ) {
+    nextAreas = parsed.areas;
+    areasChanged = true;
+  }
+
+  const startValid = YMD_DATE_RE.test((alert.watchStart || '').slice(0, 10));
+  const endValid = YMD_DATE_RE.test((alert.watchEnd || '').slice(0, 10));
+  let nextStart = alert.watchStart;
+  let nextEnd = alert.watchEnd;
+  let windowChanged = false;
+
+  if (parsed.hasExplicitWindow && parsed.watchStart && parsed.watchEnd) {
+    if (parsed.watchStart !== alert.watchStart || parsed.watchEnd !== alert.watchEnd) {
+      nextStart = parsed.watchStart;
+      nextEnd = parsed.watchEnd;
+      windowChanged = true;
+    }
+  } else if ((!startValid || !endValid) && parsed.watchStart && parsed.watchEnd) {
+    nextStart = parsed.watchStart;
+    nextEnd = parsed.watchEnd;
+    windowChanged = true;
+  } else if (startValid && endValid && alert.watchStart > alert.watchEnd) {
+    nextStart = alert.watchEnd;
+    nextEnd = alert.watchStart;
+    windowChanged = true;
+  }
+
+  const nextReportedAt = YMD_DATE_RE.test((alert.reportedAt || '').slice(0, 10))
+    ? alert.reportedAt
+    : parsed.reportedAt || alert.reportedAt;
+
+  let nextThreatType = alert.threatType;
+  let nextAlertLevel = alert.alertLevel;
+  let threatChanged = false;
+  if (
+    alert.threatType === 'ความเคลื่อนไหวกลุ่มผู้ก่อเหตุรุนแรง' &&
+    parsed.threatType !== 'ความเคลื่อนไหวกลุ่มผู้ก่อเหตุรุนแรง'
+  ) {
+    nextThreatType = parsed.threatType;
+    nextAlertLevel = parsed.alertLevel;
+    threatChanged = true;
+  }
+
+  const changed = areasChanged || windowChanged || threatChanged || nextReportedAt !== alert.reportedAt;
+  const updated: WatchAlertRecord = changed
+    ? {
+        ...alert,
+        reportedAt: nextReportedAt,
+        watchStart: nextStart,
+        watchEnd: nextEnd,
+        areas: nextAreas,
+        threatType: nextThreatType,
+        alertLevel: nextAlertLevel,
+        updatedAt: new Date().toISOString(),
+        syncStatus: 'pending',
+      }
+    : alert;
+
+  return { updated, areasChanged, windowChanged, parsed };
+}
+
+/**
+ * Audit stored watch alerts for date-window anomalies, mismatches against text, and missing areas.
+ */
+export function auditWatchAlerts(
+  alerts: WatchAlertRecord[],
+  todayYmd?: string
+): WatchAuditResult[] {
+  const today =
+    todayYmd && YMD_DATE_RE.test(todayYmd)
+      ? todayYmd
+      : getCurrentLocalDateTimeInput().slice(0, 10);
+  const currentYear = Number(today.slice(0, 4));
+
+  return alerts.map((alert) => {
+    const status = isWatchAlertActive(alert, today);
+    const parsed = extractWatchAdvisory(alert.details);
+    const issues: WatchAuditIssue[] = [];
+
+    const sStr = (alert.watchStart || '').slice(0, 10);
+    const eStr = (alert.watchEnd || '').slice(0, 10);
+    const startValid = YMD_DATE_RE.test(sStr);
+    const endValid = YMD_DATE_RE.test(eStr);
+
+    if (!startValid || !endValid) {
+      issues.push({
+        code: 'missing-dates',
+        severity: 'error',
+        message: 'ไม่พบวันที่เริ่มต้นหรือสิ้นสุดห้วงเฝ้าระวังที่ถูกต้อง',
+      });
+    } else if (sStr > eStr) {
+      issues.push({
+        code: 'inverted-dates',
+        severity: 'error',
+        message: `วันเริ่มต้น (${sStr}) มากกว่าวันสิ้นสุด (${eStr})`,
+      });
+    } else {
+      const endYear = Number(eStr.slice(0, 4));
+      if (endYear > currentYear + 1 || endYear < currentYear - 5) {
+        issues.push({
+          code: 'future-year-suspect',
+          severity: 'warn',
+          message: `ปี พ.ศ. ของวันสิ้นสุด (${endYear + 543}) อาจคลาดเคลื่อน`,
+        });
+      }
+      const startMs = new Date(`${sStr}T00:00:00`).getTime();
+      const endMs = new Date(`${eStr}T00:00:00`).getTime();
+      const spanDays = Math.round((endMs - startMs) / 86400000);
+      if (spanDays > 60) {
+        issues.push({
+          code: 'overly-long-window',
+          severity: 'warn',
+          message: `ห้วงเฝ้าระวังยาวเกิน 60 วัน (${spanDays} วัน) กรุณาตรวจสอบวันที่`,
+        });
+      }
+    }
+
+    if (parsed.hasExplicitWindow && parsed.watchStart && parsed.watchEnd) {
+      if (parsed.watchStart !== sStr || parsed.watchEnd !== eStr) {
+        issues.push({
+          code: 'window-mismatch',
+          severity: 'warn',
+          message: `ห้วงที่บันทึก (${sStr || '-'} – ${eStr || '-'}) ไม่ตรงกับข้อความข่าว (${parsed.watchStart} – ${parsed.watchEnd})`,
+        });
+      }
+    } else {
+      issues.push({
+        code: 'no-explicit-window',
+        severity: 'info',
+        message: 'ข้อความข่าวไม่ได้ระบุช่วงวันที่ห้วงเฝ้าระวังชัดเจน (ใช้วันที่ข่าวแทน)',
+      });
+    }
+
+    if (alert.areas.length === 0) {
+      issues.push({
+        code: 'areas-missing',
+        severity: 'error',
+        message: 'ยังไม่มีรายการพื้นที่อำเภอ/จังหวัดเฝ้าระวังสำหรับวาดเขตบนแผนที่',
+      });
+    } else if (
+      parsed.areas.length > 0 &&
+      canonicalWatchAreasKey(parsed.areas) !== canonicalWatchAreasKey(alert.areas)
+    ) {
+      issues.push({
+        code: 'areas-updated',
+        severity: 'info',
+        message: `จับพื้นที่จากข้อความได้เพิ่มเติม (${parsed.areas.length} พื้นที่ เทียบกับเดิม ${alert.areas.length} พื้นที่)`,
+      });
+    }
+
+    return {
+      id: alert.id,
+      status,
+      issues,
+    };
+  });
 }

@@ -24,6 +24,7 @@ import {
 import {
   CCTV_DESTRUCTION_CATEGORY,
   WATCH_ADVISORY_CATEGORY,
+  auditWatchAlerts,
   classifyCategoryFromText,
   extractMultiAreaPaper,
   extractPaperMetadata,
@@ -31,7 +32,9 @@ import {
   formatThaiDateTime,
   formatWatchAreasSummary,
   fromThaiDigits,
+  isWatchAlertActive,
   isWatchAlertWithinRecentDays,
+  reparseWatchAlert,
   toThaiDigits,
 } from '../thaiDate';
 
@@ -1046,5 +1049,184 @@ describe('Hierarchical Multi-Province Report, Area Precision & Aggregate Pull Gu
         2
       )
     ).toBe('อ.ยี่งอ, อ.ตากใบ จว.นราธิวาส +อีก 2 พื้นที่');
+  });
+
+  it('normalizes UTC Z timestamps and Thai BE slash dates without 1-day shift in GAS pull', () => {
+    const pulled = parsePulledGasResponse(
+      {
+        ok: true,
+        ipbRows: [
+          {
+            id: 'INC-UTC-TEST',
+            occurredAt: '2025-11-17T17:00:00.000Z',
+            lat: 6.0462,
+            lng: 101.2015,
+            province: 'ยะลา',
+            district: 'ธารโต',
+            subdistrict: 'แม่หวาด',
+            category: 'ระเบิด',
+            details: 'ทดสอบเวลา UTC+7 จาก Google Sheets',
+            reporter: 'ศปก.ทดสอบ',
+          },
+        ],
+        legacyRows: [],
+        watchRows: [
+          {
+            id: 'WATCH-UTC-1',
+            reportedAt: '2025-11-17T17:00:00.000Z',
+            watchStart: '18/11/2568',
+            watchEnd: '2025-11-29T17:00:00.000Z',
+            alertLevel: 'high',
+            threatType: 'ลอบวางระเบิดแสวงเครื่อง',
+            areasJson: JSON.stringify([{ province: 'ปัตตานี', district: 'ยะรัง' }]),
+            details: 'ข้อมูลทดสอบข่าวเฝ้าระวัง UTC',
+            reporter: 'ศปก.ทดสอบ',
+          },
+        ],
+      },
+      DEFAULT_SETTINGS
+    );
+
+    expect(pulled.records[0].occurredAt).toBe('2025-11-18T00:00');
+    expect(pulled.watchAlerts).toHaveLength(1);
+    expect(pulled.watchAlerts[0].reportedAt).toBe('2025-11-18');
+    expect(pulled.watchAlerts[0].watchStart).toBe('2025-11-18');
+    expect(pulled.watchAlerts[0].watchEnd).toBe('2025-11-30');
+  });
+
+  it('handles blank or inverted dates safely in isWatchAlertActive', () => {
+    expect(isWatchAlertActive({ watchStart: '', watchEnd: '' }, '2025-11-23')).toBe('expired');
+    expect(
+      isWatchAlertActive({ watchStart: '2025-11-25', watchEnd: '2025-11-15' }, '2025-11-20')
+    ).toBe('active');
+    expect(
+      isWatchAlertActive({ watchStart: '2025-11-25', watchEnd: '2025-11-15' }, '2025-11-10')
+    ).toBe('upcoming');
+  });
+
+  it('extracts diverse watch windows and district/province patterns without เมือง swap', () => {
+    const w1 = extractWatchAdvisory('ข่าวเฝ้าระวังพื้นที่อ.ยะรัง/อ.หนองจิก ห้วง ๑๘ - ๓๐ พ.ย.๖๘');
+    expect(w1.watchStart).toBe('2025-11-18');
+    expect(w1.watchEnd).toBe('2025-11-30');
+    expect(w1.hasExplicitWindow).toBe(true);
+    expect(w1.areas).toContainEqual({ province: 'ปัตตานี', district: 'ยะรัง' });
+    expect(w1.areas).toContainEqual({ province: 'ปัตตานี', district: 'หนองจิก' });
+
+    const w2 = extractWatchAdvisory(
+      'ระหว่างวันที่ ๕ ถึงวันที่ ๑๕ ธ.ค. พ.ศ. ๒๕๖๘ พื้นที่เป้าหมาย อ.ยี่งอ, บาเจาะ, ระแงะ และ รือเสาะ จว.นราธิวาส'
+    );
+    expect(w2.watchStart).toBe('2025-12-05');
+    expect(w2.watchEnd).toBe('2025-12-15');
+    expect(w2.areas.map((a) => a.district)).toEqual(['ยี่งอ', 'บาเจาะ', 'ระแงะ', 'รือเสาะ']);
+
+    const w3 = extractWatchAdvisory(
+      'เมื่อ ๑๗ พ.ย.๖๘ ปรากฏข่าวสารในพื้นที่ 4 อำเภอ จ.สงขลา (จะนะ เทพา นาทวี สะบ้าย้อย) ห้วง ๑๘ - ๓๐ พ.ย.'
+    );
+    expect(w3.watchStart).toBe('2025-11-18');
+    expect(w3.watchEnd).toBe('2025-11-30');
+    expect(w3.areas.map((a) => a.district)).toEqual(['จะนะ', 'เทพา', 'นาทวี', 'สะบ้าย้อย']);
+
+    const w4 = extractWatchAdvisory(
+      'ข่าวสารความเคลื่อนไหว เขตเทศบาลนครยะลา จนถึง ๓๐ พ.ย.๖๘'
+    );
+    expect(w4.watchEnd).toBe('2025-11-30');
+    expect(w4.areas).toContainEqual({ province: 'ยะลา', district: 'เมืองยะลา' });
+
+    const w5 = extractWatchAdvisory(
+      'ตลอดเดือน พ.ย.๖๘ พื้นที่เพ่งเล็ง จว.ยะลา (อ.เมือง, อ.รามัน) และ จว.ปัตตานี (อ.เมือง, อ.ยะรัง)'
+    );
+    expect(w5.watchStart).toBe('2025-11-01');
+    expect(w5.watchEnd).toBe('2025-11-30');
+    expect(w5.areas).toContainEqual({ province: 'ยะลา', district: 'เมืองยะลา' });
+    expect(w5.areas).toContainEqual({ province: 'ยะลา', district: 'รามัน' });
+    expect(w5.areas).toContainEqual({ province: 'ปัตตานี', district: 'เมืองปัตตานี' });
+    expect(w5.areas).toContainEqual({ province: 'ปัตตานี', district: 'ยะรัง' });
+
+    const w6 = extractWatchAdvisory('พื้นที่เฝ้าระวัง จว.ยะลา และ จว.นราธิวาส');
+    expect(w6.areas).toEqual([
+      { province: 'ยะลา', district: '' },
+      { province: 'นราธิวาส', district: '' },
+    ]);
+  });
+
+  it('repairs legacy watch alerts via reparseWatchAlert, audits anomalies, and re-geocodes legacy watch rows', () => {
+    const legacyAlert = {
+      id: 'WATCH-OLD-1',
+      reportedAt: '2025-11-17',
+      watchStart: '2025-11-30',
+      watchEnd: '2025-11-18', // inverted
+      areas: [{ province: 'ยะลา', district: 'รามัน' }], // outdated area
+      threatType: 'ความเคลื่อนไหวกลุ่มผู้ก่อเหตุรุนแรง',
+      alertLevel: 'medium' as const,
+      details:
+        'เมื่อ ๑๗ พ.ย.๖๘ เตรียมลอบวางระเบิด พื้นที่เป้าหมาย อ.ยี่งอ, บาเจาะ จว.นราธิวาส ห้วง ๑๘ - ๓๐ พ.ย.๖๘',
+      reporter: 'ศปก.ทดสอบ',
+      createdAt: '2025-11-17T08:00:00Z',
+      updatedAt: '2025-11-17T08:00:00Z',
+      syncStatus: 'synced' as const,
+    };
+
+    const preAudit = auditWatchAlerts([legacyAlert], '2025-11-23');
+    expect(preAudit[0].issues.some((i) => i.code === 'inverted-dates')).toBe(true);
+    expect(preAudit[0].issues.some((i) => i.code === 'window-mismatch')).toBe(true);
+    expect(preAudit[0].issues.some((i) => i.code === 'areas-updated')).toBe(true);
+
+    const reparsed = reparseWatchAlert(legacyAlert);
+    expect(reparsed.areasChanged).toBe(true);
+    expect(reparsed.windowChanged).toBe(true);
+    expect(reparsed.updated.watchStart).toBe('2025-11-18');
+    expect(reparsed.updated.watchEnd).toBe('2025-11-30');
+    expect(reparsed.updated.areas).toEqual([
+      { province: 'นราธิวาส', district: 'ยี่งอ' },
+      { province: 'นราธิวาส', district: 'บาเจาะ' },
+    ]);
+    expect(reparsed.updated.threatType).toBe('ลอบวางระเบิดแสวงเครื่อง');
+
+    const longAndMissing = auditWatchAlerts(
+      [
+        {
+          ...reparsed.updated,
+          id: 'WATCH-LONG',
+          watchStart: '2025-01-01',
+          watchEnd: '2025-06-01',
+        },
+        {
+          ...reparsed.updated,
+          id: 'WATCH-EMPTY',
+          watchStart: '',
+          watchEnd: '',
+          areas: [],
+        },
+      ],
+      '2025-11-23'
+    );
+    expect(longAndMissing[0].issues.some((i) => i.code === 'overly-long-window')).toBe(true);
+    expect(longAndMissing[1].issues.some((i) => i.code === 'missing-dates')).toBe(true);
+    expect(longAndMissing[1].issues.some((i) => i.code === 'areas-missing')).toBe(true);
+
+    // Legacy row categorized as watch advisory without GPS or with mismatched GPS gets re-geocoded
+    const pulled = parsePulledGasResponse(
+      {
+        ok: true,
+        ipbRows: [],
+        legacyRows: [
+          {
+            rowNumber: 55,
+            date: '2025-11-18',
+            incident_type: DEFAULT_SETTINGS.legacyIncidentType,
+            location:
+              '[ข่าวสารความเคลื่อนไหว/เฝ้าระวัง] เตรียมก่อเหตุ พื้นที่เฝ้าระวัง อ.สายบุรี จว.ปัตตานี ห้วง ๑๘ - ๓๐ พ.ย.๖๘',
+            gps: '-',
+            reporter_name: 'เวรข่าวทดสอบ',
+          },
+        ],
+      },
+      DEFAULT_SETTINGS
+    );
+    expect(pulled.records).toHaveLength(1);
+    expect(pulled.records[0].province).toBe('ปัตตานี');
+    expect(pulled.records[0].district).toBe('สายบุรี');
+    expect(pulled.records[0].lat).not.toBeNull();
+    expect(pulled.records[0].lng).not.toBeNull();
   });
 });

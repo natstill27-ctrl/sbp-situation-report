@@ -314,6 +314,23 @@ export function getDistrictBoundariesGeoJson(): {
   };
 }
 
+const TARGET_DISTRICTS: Array<{ province: string; district: string }> = (() => {
+  const seen = new Set<string>();
+  const list: Array<{ province: string; district: string }> = [];
+  for (const entry of BOUNDARIES) {
+    const key = `${entry.p}|${entry.d}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      list.push({ province: entry.p, district: entry.d });
+    }
+  }
+  return list;
+})();
+
+export function getAllTargetDistricts(): Array<{ province: string; district: string }> {
+  return TARGET_DISTRICTS;
+}
+
 export function getBoundaryCountSummary(): { districts: number; subdistricts: number } {
   const districts = new Set(BOUNDARIES.map((e) => `${e.p}-${e.d}`)).size;
   return { districts, subdistricts: BOUNDARIES.length };

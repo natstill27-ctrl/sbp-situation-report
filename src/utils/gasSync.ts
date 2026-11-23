@@ -12,6 +12,7 @@ import {
   extractPaperMetadata,
   extractWatchAdvisory,
   formatThaiDateTime,
+  isWatchAdvisoryCategory,
   WATCH_ADVISORY_CATEGORY,
 } from './thaiDate';
 
@@ -143,11 +144,32 @@ function normalizeOccurredAt(value: unknown): string {
   const str = String(value ?? '').trim();
   if (!str) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(str)) return str.slice(0, 16);
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(str)) return str.slice(0, 16);
+
+  const slashMatch = str.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::\d{2})?)?$/
+  );
+  if (slashMatch) {
+    const day = Number(slashMatch[1]);
+    const month = Number(slashMatch[2]);
+    let yr = Number(slashMatch[3]);
+    if (yr < 100) yr += yr >= 50 ? 2500 : 2000;
+    const yearAd = yr >= 2400 ? yr - 543 : yr;
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && yearAd >= 1990 && yearAd <= 2100) {
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const ymd = `${yearAd}-${pad(month)}-${pad(day)}`;
+      if (slashMatch[4] !== undefined && slashMatch[5] !== undefined) {
+        return `${ymd}T${pad(Math.min(23, Number(slashMatch[4])))}:${pad(Math.min(59, Number(slashMatch[5])))}`;
+      }
+      return ymd;
+    }
+  }
+
   const parsed = new Date(str);
   if (!Number.isNaN(parsed.getTime())) {
+    const bangkok = new Date(parsed.getTime() + 7 * 60 * 60 * 1000);
     const pad = (n: number) => String(n).padStart(2, '0');
-    return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+    return `${bangkok.getUTCFullYear()}-${pad(bangkok.getUTCMonth() + 1)}-${pad(bangkok.getUTCDate())}T${pad(bangkok.getUTCHours())}:${pad(bangkok.getUTCMinutes())}`;
   }
   return str;
 }
@@ -209,7 +231,15 @@ export function parsePulledGasResponse(
     // Fallback: route legacy-bridge WATCH-* rows saved into ipbRows into Watch Alerts instead of incidents
     if (id.startsWith('WATCH-')) {
       const parsed = extractWatchAdvisory(details);
-      const reportedAt = occurredAt.slice(0, 10) || parsed.reportedAt || createdAt.slice(0, 10);
+      const rawProvince = String(readMappedField(row, m.province, 'province') ?? '').trim();
+      const rawDistrict = String(readMappedField(row, m.district, 'district') ?? '').trim();
+      const areas =
+        parsed.areas.length > 0
+          ? parsed.areas
+          : rawProvince
+            ? [{ province: rawProvince, district: rawDistrict }]
+            : [];
+      const reportedAt = occurredAt.slice(0, 10) || parsed.reportedAt || '';
       const watchStart = parsed.watchStart || reportedAt;
       const watchEnd = parsed.watchEnd || watchStart;
       ipbWatchAlerts.push({
@@ -217,7 +247,7 @@ export function parsePulledGasResponse(
         reportedAt,
         watchStart,
         watchEnd,
-        areas: parsed.areas,
+        areas,
         threatType: parsed.threatType,
         alertLevel: parsed.alertLevel,
         details,
@@ -420,6 +450,41 @@ export function parsePulledGasResponse(
     const bracketMeta = extractBracketMeta(locationText, settings.categories);
     const category = bracketMeta.category || paperMeta.category || fallbackOther;
 
+    let effectiveCoord = parsedCoord;
+    let effectiveCoordRaw = gpsText && gpsText !== '-' ? gpsText : '';
+    if (isWatchAdvisoryCategory(category)) {
+      const watchParsed = extractWatchAdvisory(locationText);
+      if (watchParsed.areas.length > 0) {
+        const matchesParsedArea =
+          effectiveCoord &&
+          province &&
+          watchParsed.areas.some(
+            (a) => a.province === province && (!a.district || a.district === district)
+          );
+        if (!effectiveCoord || !matchesParsedArea) {
+          const target = watchParsed.areas[0];
+          province = target.province;
+          district = target.district;
+          subdistrict = target.subdistrict || '';
+          inTargetArea = true;
+          const center = getCenterOfArea(
+            province,
+            district || undefined,
+            subdistrict || undefined
+          );
+          if (center) {
+            effectiveCoord = buildParsedCoordinate(
+              center.lat,
+              center.lng,
+              'map-pick',
+              `${center.lat}, ${center.lng}`
+            );
+            effectiveCoordRaw = `${center.lat}, ${center.lng}`;
+          }
+        }
+      }
+    }
+
     const id = row.rowNumber
       ? `LEGACY-ROW-${row.rowNumber}`
       : `LEGACY-${dateStr || 'NODATE'}-${idx + 1}`;
@@ -428,11 +493,11 @@ export function parsePulledGasResponse(
     legacyRecords.push({
       id,
       occurredAt: dateStr,
-      coordinateRaw: gpsText && gpsText !== '-' ? gpsText : '',
-      lat: parsedCoord?.lat ?? null,
-      lng: parsedCoord?.lng ?? null,
-      mgrs: parsedCoord?.mgrs ?? '-',
-      utm: parsedCoord?.utm ?? '-',
+      coordinateRaw: effectiveCoordRaw,
+      lat: effectiveCoord?.lat ?? null,
+      lng: effectiveCoord?.lng ?? null,
+      mgrs: effectiveCoord?.mgrs ?? '-',
+      utm: effectiveCoord?.utm ?? '-',
       province,
       district,
       subdistrict,

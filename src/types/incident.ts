@@ -149,10 +149,33 @@ export interface WatchAdvisoryParseResult {
   reportedAt?: string;
   watchStart?: string;
   watchEnd?: string;
+  hasExplicitWindow?: boolean;
   areas: WatchAreaTarget[];
   threatType: string;
   alertLevel: WatchAlertLevel;
   matchedHints: string[];
+}
+
+export type WatchAuditIssueCode =
+  | 'missing-dates'
+  | 'inverted-dates'
+  | 'window-mismatch'
+  | 'overly-long-window'
+  | 'future-year-suspect'
+  | 'no-explicit-window'
+  | 'areas-missing'
+  | 'areas-updated';
+
+export interface WatchAuditIssue {
+  code: WatchAuditIssueCode;
+  severity: 'error' | 'warn' | 'info';
+  message: string;
+}
+
+export interface WatchAuditResult {
+  id: string;
+  status: 'active' | 'upcoming' | 'expired';
+  issues: WatchAuditIssue[];
 }
 
 export interface PaperParseResult {
