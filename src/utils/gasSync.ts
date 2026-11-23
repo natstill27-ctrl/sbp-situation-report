@@ -1,0 +1,808 @@
+import type { AppSettings, IncidentRecord } from '../types/incident';
+import { buildParsedCoordinate, parseCoordinateInput } from './coordinates';
+import { lookupAreaByLatLng, matchAreaByThaiNames } from './geoLookup';
+import { extractPaperMetadata, formatThaiDateTime } from './thaiDate';
+
+export interface GasSyncResult {
+  ok: boolean;
+  message: string;
+  responseData?: unknown;
+}
+
+export interface GasPullResult {
+  ok: boolean;
+  message: string;
+  records: IncidentRecord[];
+  ipbCount: number;
+  legacyCount: number;
+}
+
+interface RawLegacyRow {
+  rowNumber?: number;
+  date?: string;
+  incident_type?: string;
+  location?: string;
+  reporter_name?: string;
+  phone?: string;
+  gps?: string;
+  createdAt?: string;
+}
+
+/**
+ * Format compact legacy 10-column Sheet Column C ("สถานที่") preserving IPB category + area + details.
+ */
+export function buildLegacyLocationText(record: IncidentRecord): string {
+  const area = [
+    record.subdistrict ? `ต.${record.subdistrict}` : '',
+    record.district ? `อ.${record.district}` : '',
+    record.province ? `จว.${record.province}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const prefix = `[${record.category}]${area ? ` ${area}` : ''}`;
+  const details = (record.details || '').trim();
+  return details ? `${prefix} — ${details}` : prefix;
+}
+
+/**
+ * Build JSON payload using the user's configured field/column mapping plus legacy 10-column Dual-Write block.
+ */
+export function buildGasPayload(record: IncidentRecord, settings: AppSettings): Record<string, unknown> {
+  const m = settings.fieldMapping;
+  const payload: Record<string, unknown> = {
+    action: 'createOrUpdateIncident',
+    ipbSheetName: (settings.ipbSheetName || 'สถานการณ์_3_จชต_IPB').trim(),
+    dualWriteLegacy: settings.legacyDualWrite,
+    legacySheetName: (settings.legacySheetName || 'ชีต1').trim(),
+    sendLine: settings.legacySendLine,
+    legacy: {
+      date: (record.occurredAt || '').slice(0, 10),
+      incident_type: (settings.legacyIncidentType || 'สถานการณ์ 3 จชต.').trim(),
+      location: buildLegacyLocationText(record),
+      reporter_name: record.reporter || '-',
+      phone: '-',
+      gps: record.lat !== null && record.lng !== null ? `${record.lat},${record.lng}` : '-',
+    },
+  };
+
+  const values: Record<keyof typeof m, unknown> = {
+    id: record.id,
+    occurredAt: record.occurredAt,
+    occurredAtBE: formatThaiDateTime(record.occurredAt, { shortMonth: true, thaiDigits: false }),
+    coordinateRaw: record.coordinateRaw,
+    lat: record.lat ?? '',
+    lng: record.lng ?? '',
+    mgrs: record.mgrs,
+    utm: record.utm,
+    province: record.province,
+    district: record.district,
+    subdistrict: record.subdistrict,
+    inTargetArea: record.inTargetArea ? 'ในพื้นที่รับผิดชอบ' : 'นอกพื้นที่รับผิดชอบ',
+    category: record.category,
+    details: record.details,
+    reporter: record.reporter,
+    createdAt: record.createdAt,
+  };
+
+  for (const key of Object.keys(m) as Array<keyof typeof m>) {
+    const targetKey = (m[key] || key).trim();
+    if (targetKey) {
+      payload[targetKey] = values[key];
+    }
+  }
+  return payload;
+}
+
+function readMappedField(
+  row: Record<string, unknown>,
+  mappedKey: string,
+  fallbackKey: string
+): unknown {
+  if (mappedKey && row[mappedKey] !== undefined) return row[mappedKey];
+  return row[fallbackKey];
+}
+
+function toOptionalNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function normalizeOccurredAt(value: unknown): string {
+  const str = String(value ?? '').trim();
+  if (!str) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return `${str}T00:00`;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(str)) return str.slice(0, 16);
+  const parsed = new Date(str);
+  if (!Number.isNaN(parsed.getTime())) {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+  }
+  return str;
+}
+
+function extractBracketCategory(location: string, categories: string[]): string | null {
+  const match = location.match(/^\[([^\]]+)\]/);
+  if (!match) return null;
+  const candidate = match[1].trim();
+  if (categories.includes(candidate)) return candidate;
+  return candidate || null;
+}
+
+/**
+ * Parse GET ?page=json response into deduplicated IPB and legacy IncidentRecords.
+ */
+export function parsePulledGasResponse(
+  raw: unknown,
+  settings: AppSettings
+): { records: IncidentRecord[]; ipbCount: number; legacyCount: number } {
+  const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const ipbRows = Array.isArray(obj.ipbRows) ? (obj.ipbRows as Array<Record<string, unknown>>) : [];
+  const legacyRows = Array.isArray(obj.legacyRows) ? (obj.legacyRows as RawLegacyRow[]) : [];
+
+  const m = settings.fieldMapping;
+  const ipbRecords: IncidentRecord[] = [];
+  const legacyRecords: IncidentRecord[] = [];
+
+  for (let idx = 0; idx < ipbRows.length; idx++) {
+    const row = ipbRows[idx];
+    const id = String(readMappedField(row, m.id, 'id') ?? '').trim() || `IPB-GAS-${idx + 1}`;
+    const occurredAt = normalizeOccurredAt(readMappedField(row, m.occurredAt, 'occurredAt'));
+    const coordinateRaw = String(readMappedField(row, m.coordinateRaw, 'coordinateRaw') ?? '').trim();
+
+    let lat = toOptionalNumber(readMappedField(row, m.lat, 'lat'));
+    let lng = toOptionalNumber(readMappedField(row, m.lng, 'lng'));
+    let mgrs = String(readMappedField(row, m.mgrs, 'mgrs') ?? '').trim();
+    let utm = String(readMappedField(row, m.utm, 'utm') ?? '').trim();
+
+    if ((lat === null || lng === null) && coordinateRaw) {
+      const parsedCoord = parseCoordinateInput(coordinateRaw);
+      if (parsedCoord) {
+        lat = parsedCoord.lat;
+        lng = parsedCoord.lng;
+        if (!mgrs || mgrs === '-') mgrs = parsedCoord.mgrs;
+        if (!utm || utm === '-') utm = parsedCoord.utm;
+      }
+    } else if (lat !== null && lng !== null && (!mgrs || mgrs === '-' || !utm || utm === '-')) {
+      const derived = buildParsedCoordinate(lat, lng, 'latlng', coordinateRaw || `${lat}, ${lng}`);
+      if (!mgrs || mgrs === '-') mgrs = derived.mgrs;
+      if (!utm || utm === '-') utm = derived.utm;
+    }
+
+    let province = String(readMappedField(row, m.province, 'province') ?? '').trim();
+    let district = String(readMappedField(row, m.district, 'district') ?? '').trim();
+    let subdistrict = String(readMappedField(row, m.subdistrict, 'subdistrict') ?? '').trim();
+    const inTargetRaw = String(readMappedField(row, m.inTargetArea, 'inTargetArea') ?? '').trim();
+    let inTargetArea =
+      inTargetRaw === 'นอกพื้นที่รับผิดชอบ' || inTargetRaw.toLowerCase() === 'false'
+        ? false
+        : inTargetRaw === 'ในพื้นที่รับผิดชอบ' || inTargetRaw.toLowerCase() === 'true'
+          ? true
+          : Boolean(province);
+
+    if (lat !== null && lng !== null && (!province || !district || !subdistrict)) {
+      const areaMatch = lookupAreaByLatLng(lat, lng);
+      if (areaMatch.inTargetArea) {
+        province = province || areaMatch.province;
+        district = district || areaMatch.district;
+        subdistrict = subdistrict || areaMatch.subdistrict;
+        inTargetArea = true;
+      }
+    }
+
+    const category =
+      String(readMappedField(row, m.category, 'category') ?? '').trim() ||
+      settings.categories[0] ||
+      'อื่นๆ';
+    const details = String(readMappedField(row, m.details, 'details') ?? '').trim();
+    const reporter = String(readMappedField(row, m.reporter, 'reporter') ?? '').trim() || '-';
+    const createdAt =
+      String(readMappedField(row, m.createdAt, 'createdAt') ?? '').trim() ||
+      new Date().toISOString();
+
+    ipbRecords.push({
+      id,
+      occurredAt,
+      coordinateRaw: coordinateRaw || (lat !== null && lng !== null ? `${lat}, ${lng}` : ''),
+      lat,
+      lng,
+      mgrs: mgrs || '-',
+      utm: utm || '-',
+      province,
+      district,
+      subdistrict,
+      inTargetArea,
+      category,
+      details,
+      reporter,
+      createdAt,
+      updatedAt: createdAt,
+      syncStatus: 'synced',
+      sourceSheet: 'ipb',
+    });
+  }
+
+  const targetLegacyType = (settings.legacyIncidentType || 'สถานการณ์ 3 จชต.').trim();
+
+  for (let idx = 0; idx < legacyRows.length; idx++) {
+    const row = legacyRows[idx];
+    const rowType = String(row.incident_type ?? '').trim();
+    if (!rowType || rowType !== targetLegacyType) continue;
+
+    const dateStr = String(row.date ?? '').trim().slice(0, 10);
+    const locationText = String(row.location ?? '').trim();
+    const gpsText = String(row.gps ?? '').trim();
+    const parsedCoord =
+      (gpsText && gpsText !== '-' ? parseCoordinateInput(gpsText) : null) ||
+      (locationText ? parseCoordinateInput(locationText) : null);
+
+    // Deduplicate Dual-Write rows already present in ipbRows
+    const isDuplicate = ipbRecords.some((ipb) => {
+      const ipbDate = (ipb.occurredAt || '').slice(0, 10);
+      if (dateStr && ipbDate && dateStr !== ipbDate) return false;
+      if (
+        parsedCoord &&
+        ipb.lat !== null &&
+        ipb.lng !== null &&
+        Math.abs(parsedCoord.lat - ipb.lat) <= 0.0002 &&
+        Math.abs(parsedCoord.lng - ipb.lng) <= 0.0002
+      ) {
+        return true;
+      }
+      const expectedLegacyLoc = buildLegacyLocationText(ipb);
+      if (locationText && locationText === expectedLegacyLoc) return true;
+      if (
+        locationText &&
+        ipb.details.length >= 12 &&
+        locationText.includes(ipb.details.slice(0, 40))
+      ) {
+        return true;
+      }
+      return false;
+    });
+
+    if (isDuplicate) continue;
+
+    let province = '';
+    let district = '';
+    let subdistrict = '';
+    let inTargetArea = false;
+
+    if (parsedCoord) {
+      const areaMatch = lookupAreaByLatLng(parsedCoord.lat, parsedCoord.lng);
+      province = areaMatch.province;
+      district = areaMatch.district;
+      subdistrict = areaMatch.subdistrict;
+      inTargetArea = areaMatch.inTargetArea;
+    }
+
+    const paperMeta = extractPaperMetadata(locationText, settings.categories);
+    if (!province && (paperMeta.province || paperMeta.district || paperMeta.subdistrict)) {
+      const nameMatch = matchAreaByThaiNames(
+        paperMeta.province,
+        paperMeta.district,
+        paperMeta.subdistrict
+      );
+      if (nameMatch) {
+        province = nameMatch.province;
+        district = nameMatch.district;
+        subdistrict = nameMatch.subdistrict;
+        inTargetArea = nameMatch.inTargetArea;
+      } else {
+        province = paperMeta.province || '';
+        district = paperMeta.district || '';
+        subdistrict = paperMeta.subdistrict || '';
+      }
+    }
+
+    const fallbackOther = settings.categories.includes('อื่นๆ')
+      ? 'อื่นๆ'
+      : settings.categories[0] || 'อื่นๆ';
+    const category =
+      extractBracketCategory(locationText, settings.categories) ||
+      paperMeta.category ||
+      fallbackOther;
+
+    const id = row.rowNumber
+      ? `LEGACY-ROW-${row.rowNumber}`
+      : `LEGACY-${dateStr || 'NODATE'}-${idx + 1}`;
+    const createdAt = String(row.createdAt ?? '').trim() || new Date().toISOString();
+
+    legacyRecords.push({
+      id,
+      occurredAt: dateStr ? `${dateStr}T00:00` : '',
+      coordinateRaw: gpsText && gpsText !== '-' ? gpsText : '',
+      lat: parsedCoord?.lat ?? null,
+      lng: parsedCoord?.lng ?? null,
+      mgrs: parsedCoord?.mgrs ?? '-',
+      utm: parsedCoord?.utm ?? '-',
+      province,
+      district,
+      subdistrict,
+      inTargetArea,
+      category,
+      details: locationText || targetLegacyType,
+      reporter: String(row.reporter_name ?? '').trim() || '-',
+      createdAt,
+      updatedAt: createdAt,
+      syncStatus: 'synced',
+      sourceSheet: 'legacy',
+    });
+  }
+
+  const combined = [...ipbRecords, ...legacyRecords].sort((a, b) => {
+    const tA = new Date(a.occurredAt || a.createdAt).getTime();
+    const tB = new Date(b.occurredAt || b.createdAt).getTime();
+    return tB - tA;
+  });
+
+  return {
+    records: combined,
+    ipbCount: ipbRecords.length,
+    legacyCount: legacyRecords.length,
+  };
+}
+
+/**
+ * Send record to Google Apps Script Web App (/exec) using text/plain to avoid CORS preflight failures.
+ */
+export async function sendIncidentToGas(
+  record: IncidentRecord,
+  settings: AppSettings
+): Promise<GasSyncResult> {
+  const url = settings.gasWebhookUrl.trim();
+  if (!url) {
+    return { ok: false, message: 'ยังไม่ได้ตั้งค่า Webhook URL ของ Google Apps Script' };
+  }
+
+  const payload = buildGasPayload(record, settings);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await response.text();
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      // GAS might return HTML or plain text
+    }
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: `เซิร์ฟเวอร์ตอบกลับ HTTP ${response.status}`,
+      };
+    }
+
+    if (parsed && parsed.ok === false) {
+      return {
+        ok: false,
+        message: String(parsed.error || parsed.message || 'ระบบเดิมปฏิเสธการบันทึก'),
+        responseData: parsed,
+      };
+    }
+
+    return {
+      ok: true,
+      message: (parsed?.message as string) || 'ส่งข้อมูลเข้าสู่ระบบเดิมสำเร็จ',
+      responseData: parsed ?? text,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message:
+        err instanceof Error
+          ? `เชื่อมต่อไม่สำเร็จ: ${err.message}`
+          : 'ไม่สามารถเชื่อมต่อ Google Apps Script ได้',
+    };
+  }
+}
+
+/**
+ * Pull historical SBP rows from Google Apps Script (?page=json&scope=sbp).
+ */
+export async function pullIncidentsFromGas(settings: AppSettings): Promise<GasPullResult> {
+  const baseUrl = (settings.gasFetchUrl || settings.gasWebhookUrl).trim();
+  if (!baseUrl) {
+    return {
+      ok: false,
+      message: 'ยังไม่ได้ตั้งค่า Web App URL ของ Google Apps Script',
+      records: [],
+      ipbCount: 0,
+      legacyCount: 0,
+    };
+  }
+
+  const url = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}page=json&scope=sbp`;
+  try {
+    const response = await fetch(url, { method: 'GET' });
+    const text = await response.text();
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: `ดึงข้อมูลไม่สำเร็จ (HTTP ${response.status})`,
+        records: [],
+        ipbCount: 0,
+        legacyCount: 0,
+      };
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return {
+        ok: false,
+        message:
+          'ปลายทางส่งกลับมาเป็น HTML ไม่ใช่ JSON — กรุณาเพิ่มเงื่อนไข if (page == "json") return exportSbpJson(e); ใน doGet(e) ของ GAS และ Deploy เวอร์ชันใหม่',
+        records: [],
+        ipbCount: 0,
+        legacyCount: 0,
+      };
+    }
+
+    if (parsed.ok === false) {
+      return {
+        ok: false,
+        message: String(parsed.error || parsed.message || 'GAS ส่งกลับข้อผิดพลาด'),
+        records: [],
+        ipbCount: 0,
+        legacyCount: 0,
+      };
+    }
+
+    const { records, ipbCount, legacyCount } = parsePulledGasResponse(parsed, settings);
+    return {
+      ok: true,
+      message: `ดึงข้อมูลสำเร็จ: แท็บ IPB ${ipbCount} รายการ และจากชีตเดิม ${legacyCount} รายการ (รวม ${records.length} รายการ)`,
+      records,
+      ipbCount,
+      legacyCount,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message:
+        err instanceof Error
+          ? `ไม่สามารถเชื่อมต่อเพื่อดึงข้อมูลได้: ${err.message}`
+          : 'ไม่สามารถเชื่อมต่อ Google Apps Script ได้',
+      records: [],
+      ipbCount: 0,
+      legacyCount: 0,
+    };
+  }
+}
+
+export async function testGasConnection(settings: AppSettings): Promise<GasSyncResult> {
+  const url = settings.gasWebhookUrl.trim();
+  if (!url) {
+    return { ok: false, message: 'กรุณากรอก Webhook URL ก่อนทดสอบ' };
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'ping', source: 'SBP-Standalone-Report' }),
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      return { ok: false, message: `HTTP ${response.status}: ไม่สามารถเชื่อมต่อปลายทางได้` };
+    }
+    try {
+      const parsed = JSON.parse(text) as { ok?: boolean; message?: string };
+      return {
+        ok: parsed.ok !== false,
+        message: parsed.message || 'เชื่อมต่อ Google Apps Script สำเร็จ',
+        responseData: parsed,
+      };
+    } catch {
+      return {
+        ok: true,
+        message: 'เชื่อมต่อปลายทางได้ (ได้รับ HTTP 200 แต่ผลลัพธ์ไม่ใช่ JSON — ตรวจสอบฟังก์ชัน doPost)',
+        responseData: text.slice(0, 200),
+      };
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? `เชื่อมต่อไม่สำเร็จ: ${err.message}` : 'เชื่อมต่อล้มเหลว',
+    };
+  }
+}
+
+/**
+ * Generate a drop-in Google Apps Script bridge (`SbpBridge.gs`) compatible with legacy 10-column sheets.
+ * Contains ZERO hardcoded secrets/IDs/tokens.
+ */
+export function generateGasReceiverCode(settings: AppSettings): string {
+  const m = settings.fieldMapping;
+  const ipbSheetName = (settings.ipbSheetName || 'สถานการณ์_3_จชต_IPB').trim();
+  const legacySheetName = (settings.legacySheetName || 'ชีต1').trim();
+  const legacyIncidentType = (settings.legacyIncidentType || 'สถานการณ์ 3 จชต.').trim();
+
+  const headers = [
+    m.id,
+    m.occurredAt,
+    m.occurredAtBE,
+    m.category,
+    m.province,
+    m.district,
+    m.subdistrict,
+    m.inTargetArea,
+    m.lat,
+    m.lng,
+    m.mgrs,
+    m.utm,
+    m.coordinateRaw,
+    m.details,
+    m.reporter,
+    m.createdAt,
+  ];
+  const fullHeaders = [...headers, 'legacyRowNumber'];
+
+  const rowMappingLines = headers
+    .map((h) => `      data[${JSON.stringify(h)}] !== undefined ? data[${JSON.stringify(h)}] : ''`)
+    .join(',\n');
+
+  return `/**
+ * SbpBridge.gs — โค้ดเชื่อมต่อระบบรายงานสถานการณ์ 3 จังหวัดชายแดนภาคใต้ (Dual-Write + ดึงข้อมูลย้อนหลัง)
+ * วิธีติดตั้งในโปรเจกต์ Google Apps Script เดิม:
+ * 1) สร้างไฟล์สคริปต์ใหม่ชื่อ SbpBridge แล้ววางโค้ดนี้ลงไปทั้งหมด
+ * 2) เพิ่ม 3 บรรทัดนี้ในฟังก์ชัน doGet(e) ของไฟล์หลักเดิม:
+ *      if (page == "json") {
+ *        return exportSbpJson(e);
+ *      }
+ * 3) (ทางเลือก) ใน exportKML() สามารถเพิ่ม:
+ *      if (type == ${JSON.stringify(legacyIncidentType)}) style = "suspicious_object";
+ * 4) กด Deploy -> Manage deployments -> Edit -> New version -> Deploy (Execute as: Me, Access: Anyone)
+ */
+
+var SBP_IPB_SHEET_NAME = ${JSON.stringify(ipbSheetName)};
+var SBP_LEGACY_SHEET_NAME = ${JSON.stringify(legacySheetName)};
+var SBP_LEGACY_TYPE = ${JSON.stringify(legacyIncidentType)};
+
+function getSbpTimezone_() {
+  try {
+    if (typeof TIMEZONE !== 'undefined' && TIMEZONE) {
+      return TIMEZONE;
+    }
+  } catch (_e) {}
+  return 'Asia/Bangkok';
+}
+
+function getSbpSpreadsheet_() {
+  try {
+    if (typeof SPREADSHEET_ID !== 'undefined' && SPREADSHEET_ID) {
+      return SpreadsheetApp.openById(SPREADSHEET_ID);
+    }
+  } catch (_e) {}
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
+function doPost(e) {
+  try {
+    var tz = getSbpTimezone_();
+    var raw = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
+    var data = JSON.parse(raw);
+
+    if (data.action === 'ping') {
+      return sbpJsonResponse_({
+        ok: true,
+        message: 'เชื่อมต่อกับ Google Apps Script สำเร็จ',
+        ipbSheet: SBP_IPB_SHEET_NAME,
+        legacySheet: SBP_LEGACY_SHEET_NAME,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    var todayText = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+    var occurredRaw = String(data[${JSON.stringify(m.occurredAt)}] || (data.legacy && data.legacy.date) || '');
+    var incidentDateText = occurredRaw ? occurredRaw.slice(0, 10) : todayText;
+
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(incidentDateText)) {
+      return sbpJsonResponse_({ ok: false, error: 'รูปแบบวันที่เกิดเหตุไม่ถูกต้อง' });
+    }
+    if (incidentDateText > todayText) {
+      return sbpJsonResponse_({ ok: false, error: 'ไม่สามารถเลือกวันที่เกิดเหตุในอนาคตได้' });
+    }
+
+    var ss = getSbpSpreadsheet_();
+    var ipbSheetName = String(data.ipbSheetName || SBP_IPB_SHEET_NAME);
+    var ipbSheet = ss.getSheetByName(ipbSheetName) || ss.insertSheet(ipbSheetName);
+
+    var headers = ${JSON.stringify(fullHeaders)};
+    if (ipbSheet.getLastRow() === 0) {
+      ipbSheet.appendRow(headers);
+    }
+
+    var idKey = ${JSON.stringify(m.id)};
+    var idColIndex = headers.indexOf(idKey) + 1;
+    var legacyRowColIndex = headers.indexOf('legacyRowNumber') + 1;
+    var targetRow = -1;
+    var existingLegacyRow = '';
+
+    if (idColIndex > 0 && data[idKey] && ipbSheet.getLastRow() > 1) {
+      var lastRow = ipbSheet.getLastRow();
+      var ids = ipbSheet.getRange(2, idColIndex, lastRow - 1, 1).getValues();
+      for (var i = 0; i < ids.length; i++) {
+        if (String(ids[i][0]) === String(data[idKey])) {
+          targetRow = i + 2;
+          if (legacyRowColIndex > 0) {
+            existingLegacyRow = ipbSheet.getRange(targetRow, legacyRowColIndex).getValue();
+          }
+          break;
+        }
+      }
+    }
+
+    // 1. บันทึก/อัปเดตลงชีตเดิม (10 คอลัมน์ A-J) แบบ Dual-Write
+    var legacyRowNum = existingLegacyRow ? Number(existingLegacyRow) : '';
+    var resolvedLegacyName = String(data.legacySheetName || SBP_LEGACY_SHEET_NAME);
+    if (data.dualWriteLegacy !== false) {
+      var legacySheet = ss.getSheetByName(resolvedLegacyName);
+      if (!legacySheet) {
+        return sbpJsonResponse_({ ok: false, error: 'ไม่พบชีตชื่อ ' + resolvedLegacyName });
+      }
+
+      var dp = incidentDateText.split('-');
+      var incidentDate = new Date(Number(dp[0]), Number(dp[1]) - 1, Number(dp[2]), 0, 0, 0);
+      var legacyObj = data.legacy || {};
+      var legacyType = String(legacyObj.incident_type || SBP_LEGACY_TYPE);
+      var legacyLocation = String(legacyObj.location || data[${JSON.stringify(m.details)}] || '-');
+      var legacyReporter = String(legacyObj.reporter_name || data[${JSON.stringify(m.reporter)}] || '-');
+      var legacyPhone = String(legacyObj.phone || '-');
+      var legacyGps = String(legacyObj.gps || '-');
+      var createdAt = new Date();
+
+      var legacyRow = [
+        incidentDate,
+        legacyType,
+        legacyLocation,
+        legacyReporter,
+        "'" + legacyPhone,
+        legacyGps,
+        '-',
+        '-',
+        '-',
+        createdAt
+      ];
+
+      if (legacyRowNum && legacyRowNum > 1 && legacyRowNum <= legacySheet.getLastRow()) {
+        legacySheet.getRange(legacyRowNum, 1, 1, legacyRow.length).setValues([legacyRow]);
+      } else {
+        legacySheet.appendRow(legacyRow);
+        legacyRowNum = legacySheet.getLastRow();
+      }
+
+      legacySheet.getRange(legacyRowNum, 1).setNumberFormat('dd/MM/yyyy');
+      legacySheet.getRange(legacyRowNum, 10).setNumberFormat('dd/MM/yyyy HH:mm:ss');
+
+      try {
+        if (data.sendLine === true && typeof sendLine === 'function') {
+          sendLine(
+            {
+              incident_type: legacyType,
+              location: legacyLocation,
+              reporter_name: legacyReporter,
+              phone: legacyPhone
+            },
+            ['-', '-', '-'],
+            legacyGps,
+            incidentDate
+          );
+        }
+      } catch (_lineErr) {}
+    }
+
+    // 2. บันทึก/อัปเดตลงแท็บข้อมูลเต็ม IPB
+    var ipbRow = [
+${rowMappingLines},
+      legacyRowNum
+    ];
+
+    if (targetRow > 0) {
+      ipbSheet.getRange(targetRow, 1, 1, ipbRow.length).setValues([ipbRow]);
+    } else {
+      ipbSheet.appendRow(ipbRow);
+    }
+
+    return sbpJsonResponse_({
+      ok: true,
+      message: 'บันทึกข้อมูลเข้าแท็บ ' + ipbSheetName + (data.dualWriteLegacy !== false ? ' และ ' + resolvedLegacyName : '') + ' สำเร็จ',
+      id: data[idKey] || '',
+      legacyRowNumber: legacyRowNum
+    });
+  } catch (err) {
+    return sbpJsonResponse_({ ok: false, error: err.message });
+  }
+}
+
+function exportSbpJson(e) {
+  try {
+    var tz = getSbpTimezone_();
+    var ss = getSbpSpreadsheet_();
+    var ipbRows = [];
+    var ipbSheet = ss.getSheetByName(SBP_IPB_SHEET_NAME);
+    if (ipbSheet && ipbSheet.getLastRow() > 1) {
+      var ipbValues = ipbSheet.getDataRange().getValues();
+      var ipbHeaders = ipbValues.shift();
+      ipbValues.forEach(function (r) {
+        var obj = {};
+        ipbHeaders.forEach(function (h, idx) {
+          var key = String(h || '').trim();
+          if (!key) return;
+          var val = r[idx];
+          if (val instanceof Date && !isNaN(val.getTime())) {
+            obj[key] = Utilities.formatDate(val, tz, "yyyy-MM-dd'T'HH:mm");
+          } else {
+            obj[key] = val;
+          }
+        });
+        ipbRows.push(obj);
+      });
+    }
+
+    var legacyRows = [];
+    var legacySheet = ss.getSheetByName(SBP_LEGACY_SHEET_NAME);
+    if (legacySheet && legacySheet.getLastRow() > 1) {
+      var legValues = legacySheet.getDataRange().getValues();
+      for (var i = 1; i < legValues.length; i++) {
+        var row = legValues[i];
+        var type = String(row[1] || '').trim();
+        if (type !== SBP_LEGACY_TYPE) continue;
+
+        var dateStr = '';
+        if (row[0] instanceof Date && !isNaN(row[0].getTime())) {
+          dateStr = Utilities.formatDate(row[0], tz, 'yyyy-MM-dd');
+        } else {
+          dateStr = String(row[0] || '').trim();
+        }
+
+        var createdStr = '';
+        if (row[9] instanceof Date && !isNaN(row[9].getTime())) {
+          createdStr = Utilities.formatDate(row[9], tz, "yyyy-MM-dd'T'HH:mm:ss");
+        }
+
+        legacyRows.push({
+          rowNumber: i + 1,
+          date: dateStr,
+          incident_type: type,
+          location: String(row[2] || '').trim(),
+          reporter_name: String(row[3] || '').trim(),
+          phone: String(row[4] || '').replace(/^'/, '').trim(),
+          gps: String(row[5] || '').trim(),
+          createdAt: createdStr
+        });
+      }
+    }
+
+    return sbpJsonResponse_({
+      ok: true,
+      ipbRows: ipbRows,
+      legacyRows: legacyRows,
+      generatedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    return sbpJsonResponse_({ ok: false, error: err.message });
+  }
+}
+
+function sbpJsonResponse_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+`;
+}

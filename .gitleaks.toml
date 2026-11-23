@@ -1,0 +1,25 @@
+title = "Intelligence Report Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "thai-national-id-context"
+description = "Thai 13-digit National ID paired with identity keywords"
+regex = '''(?i)(?:เลขประจำตัวประชาชน|เลขบัตรประชาชน|บัตรประชาชน|citizen[_-]?id|thai[_-]?id|id[_-]?card)\s*[:=]\s*["']?\d{13}["']?'''
+tags = ["pii", "pdpa", "th"]
+
+[[rules]]
+id = "gas-webhook-secret"
+description = "Hardcoded Google Apps Script deployment URL"
+regex = '''https://script\.google\.com/macros/s/[A-Za-z0-9_-]{20,}/exec'''
+tags = ["webhook", "opsec"]
+
+[allowlist]
+description = "Exclude build artifacts, dependencies, and synthetic sample fixtures"
+paths = [
+  '''^\.gitleaks\.toml$''',
+  '''^dist/''',
+  '''^node_modules/''',
+  '''^src/data/defaults\.ts$''',
+]

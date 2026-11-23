@@ -1,0 +1,19 @@
+# Dependencies & build output
+node_modules/
+dist/
+tsconfig.tsbuildinfo
+
+# Sensitive local files & Google Apps Script backups (NEVER commit)
+Google App Script/
+*.env
+.env.*
+*.csv
+public/maps/*.pmtiles
+*.pmtiles
+
+# Local IDE / assistant config
+.serena/
+CLAUDE.md
+.github/copilot-instructions.md
+.DS_Store
+Thumbs.db
