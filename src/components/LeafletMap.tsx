@@ -5,6 +5,7 @@ import type { IncidentRecord } from '../types/incident';
 import { getCategoryColor } from '../utils/categoryColors';
 import { getMilSymbolIconOptions } from '../utils/milSymbols';
 import { createPmtilesRasterLayer } from '../utils/pmtilesLayer';
+import { classifyIncidentSeverity } from '../utils/severity';
 import { formatThaiDateTime } from '../utils/thaiDate';
 import { getDistrictBoundariesGeoJson } from '../utils/geoLookup';
 
@@ -96,6 +97,7 @@ interface OverviewMapProps {
   onSelectIncident?: (id: string) => void;
   showBoundaries?: boolean;
   markerStyle?: 'pin' | 'milsymbol';
+  colorMode?: 'category' | 'severity';
   offlinePmtilesUrl?: string;
   height?: string;
 }
@@ -168,11 +170,21 @@ export function LeafletMap(props: LeafletMapProps) {
     previewLayerRef.current = previewLayer;
     markerLayerRef.current = markerLayer;
 
-    // Ensure Leaflet measures container properly after render
+    // Ensure Leaflet measures container properly after render & resizes (e.g., fullscreen / C2 layout)
     const timer = window.setTimeout(() => map.invalidateSize(), 150);
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined' && containerRef.current
+        ? new ResizeObserver(() => {
+            map.invalidateSize();
+          })
+        : null;
+    if (resizeObserver && containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
 
     return () => {
       window.clearTimeout(timer);
+      resizeObserver?.disconnect();
       map.remove();
       mapRef.current = null;
       baseLayerRef.current = null;
@@ -290,7 +302,11 @@ export function LeafletMap(props: LeafletMapProps) {
       const lng = item.lng as number;
       bounds.push([lat, lng]);
       const catIndex = props.categories.indexOf(item.category);
-      const color = getCategoryColor(item.category, catIndex >= 0 ? catIndex : 0);
+      const severity = classifyIncidentSeverity(item.category, item.details);
+      const color =
+        props.colorMode === 'severity'
+          ? severity.color
+          : getCategoryColor(item.category, catIndex >= 0 ? catIndex : 0);
       const isSelected = props.selectedId === item.id;
       const icon =
         props.markerStyle === 'milsymbol'
@@ -317,6 +333,7 @@ export function LeafletMap(props: LeafletMapProps) {
       const popupHtml = `
         <div style="font-family:'Sarabun','Noto Sans Thai',sans-serif;min-width:220px;max-width:290px;line-height:1.45;">
           <div style="font-weight:700;color:${color};margin-bottom:4px;">${escapeHtml(item.category)}</div>
+          <div style="display:inline-block;font-size:11px;font-weight:700;color:#ffffff;background:${severity.color};padding:1px 7px;border-radius:999px;margin-bottom:4px;">ความรุนแรง: ${escapeHtml(severity.label)}</div>
           ${countLine}
           <div style="font-size:12px;color:#334155;"><strong>วัน-เวลา:</strong> ${escapeHtml(formatThaiDateTime(item.occurredAt))}</div>
           <div style="font-size:12px;color:#334155;"><strong>พื้นที่:</strong> ${escapeHtml(area || 'ไม่ระบุ')}</div>
@@ -351,6 +368,7 @@ export function LeafletMap(props: LeafletMapProps) {
     props.mode === 'overview' ? props.categories : null,
     props.mode === 'overview' ? props.selectedId : null,
     props.mode === 'overview' ? props.markerStyle : null,
+    props.mode === 'overview' ? props.colorMode : null,
   ]);
 
   const isOfflineBasemap = Boolean((props.offlinePmtilesUrl || '').trim());

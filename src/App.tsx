@@ -282,7 +282,7 @@ export function App() {
       />
 
       <main id="main-content" className="gov-main" tabIndex={-1}>
-        <div className="gov-container">
+        <div className={`gov-container ${activeTab === 'ipb' ? 'wide-dashboard' : ''}`}>
           {startupNotice && (
             <div className="inline-alert info startup-banner" role="status">
               <span>{startupNotice}</span>
@@ -323,6 +323,8 @@ export function App() {
                 <IpbDashboardPage
                   incidents={incidents}
                   categories={settings.categories}
+                  settings={settings}
+                  lastPulledAt={lastPulledAt}
                   onLoadSamples={handleLoadSamples}
                   hasGasUrl={hasGasUrl}
                   onPullFromGas={() => handlePullFromGas()}

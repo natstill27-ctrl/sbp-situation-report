@@ -11,6 +11,11 @@ import {
 } from '../gasSync';
 import { lookupAreaByLatLng, matchAreaByThaiNames } from '../geoLookup';
 import {
+  buildAreaSeverityStats,
+  buildDailyTrendBuckets,
+  classifyIncidentSeverity,
+} from '../severity';
+import {
   extractMultiAreaPaper,
   extractPaperMetadata,
   formatThaiDateTime,
@@ -436,5 +441,67 @@ describe('Multi-Area Paper Parser & eventCount Support', () => {
     const legacyMulti = pulled.records.find((r) => r.id === 'LEGACY-ROW-12');
     expect(legacyMulti?.category).toBe('วางเพลิง');
     expect(legacyMulti?.eventCount).toBe(2);
+  });
+});
+
+describe('IPB Severity Classification & C2 Aggregations', () => {
+  it('classifies Southern Border tactical categories cleanly and ignores negated casualties', () => {
+    expect(classifyIncidentSeverity('ปะทะ/ปิดล้อมตรวจค้น').level).toBe('critical');
+    expect(classifyIncidentSeverity('ระเบิด').level).toBe('critical');
+    expect(classifyIncidentSeverity('ใช้อาวุธปืน/ลอบยิง').level).toBe('critical');
+    expect(classifyIncidentSeverity('วางเพลิง').level).toBe('high');
+    expect(
+      classifyIncidentSeverity(
+        'ก่อกวน/โปรยตะปูเรือใบ-เผายาง',
+        'เผายางรถยนต์ 2 จุด ไม่มีผู้ได้รับบาดเจ็บหรือเสียชีวิต'
+      ).level
+    ).toBe('medium');
+    expect(
+      classifyIncidentSeverity(
+        'ตรวจยึด/จับกุม',
+        'ตรวจยึดอาวุธปืนและวัตถุระเบิด ไม่มีผู้ได้รับบาดเจ็บหรือเสียชีวิต'
+      ).level
+    ).toBe('low');
+    expect(classifyIncidentSeverity('อุบัติเหตุ/ภัยพิบัติ').level).toBe('low');
+  });
+
+  it('builds 30 daily trend buckets and weighted area severity percentages', () => {
+    const base = buildSampleIncidents()[0];
+    const items = [
+      {
+        ...base,
+        id: 'SEV-1',
+        province: 'ปัตตานี',
+        category: 'ระเบิด',
+        details: 'เหตุวัตถุระเบิดริมถนนทดสอบ',
+        occurredAt: '2025-04-30T08:00',
+        eventCount: 3,
+      },
+      {
+        ...base,
+        id: 'SEV-2',
+        province: 'ปัตตานี',
+        category: 'ตรวจยึด/จับกุม',
+        details: 'ตั้งจุดสกัดตรวจยึดสิ่งผิดกฎหมาย',
+        occurredAt: '2025-04-01T10:00',
+        eventCount: 1,
+      },
+    ];
+
+    const buckets = buildDailyTrendBuckets(items, 30, '2025-04-30');
+    expect(buckets).toHaveLength(30);
+    expect(buckets[0].ymd).toBe('2025-04-01');
+    expect(buckets[0].count).toBe(1);
+    expect(buckets[29].ymd).toBe('2025-04-30');
+    expect(buckets[29].count).toBe(3);
+
+    const areaRows = buildAreaSeverityStats(items);
+    const pattani = areaRows.find((r) => r.key === 'ปัตตานี');
+    expect(pattani).toBeDefined();
+    expect(pattani?.total).toBe(4);
+    expect(pattani?.counts.critical).toBe(3);
+    expect(pattani?.counts.low).toBe(1);
+    expect(pattani?.pcts.critical).toBe(75);
+    expect(pattani?.pcts.low).toBe(25);
   });
 });

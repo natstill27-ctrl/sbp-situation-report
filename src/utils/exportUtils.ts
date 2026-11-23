@@ -264,7 +264,8 @@ function triggerPngBlobDownload(canvas: HTMLCanvasElement, filename: string): vo
 export async function exportSvgElementToPng(
   svgEl: SVGSVGElement,
   filename: string,
-  title?: string
+  title?: string,
+  darkTheme = false
 ): Promise<void> {
   const vb = svgEl.viewBox.baseVal;
   const width = vb && vb.width ? vb.width : svgEl.clientWidth || 640;
@@ -275,11 +276,20 @@ export async function exportSvgElementToPng(
   clone.setAttribute('width', String(width));
   clone.setAttribute('height', String(height));
 
+  const c2Text = darkTheme ? '#f1f5f9' : '#0f172a';
+  const c2Muted = darkTheme ? '#94a3b8' : '#475569';
+  const c2Grid = darkTheme ? '#1e3a5f' : '#e2e8f0';
+  const c2Accent = darkTheme ? '#38bdf8' : '#0f4c81';
+
   const serialized = new XMLSerializer()
     .serializeToString(clone)
     .replace(/var\(--info\)/g, '#0f4c81')
-    .replace(/var\(--text-main\)/g, '#0f172a')
-    .replace(/var\(--text-muted\)/g, '#334155');
+    .replace(/var\(--text-main\)/g, c2Text)
+    .replace(/var\(--text-muted\)/g, c2Muted)
+    .replace(/var\(--c2-text\)/g, c2Text)
+    .replace(/var\(--c2-muted\)/g, c2Muted)
+    .replace(/var\(--c2-grid\)/g, c2Grid)
+    .replace(/var\(--c2-accent\)/g, c2Accent);
 
   const svgBlob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' });
   const svgUrl = URL.createObjectURL(svgBlob);
@@ -302,11 +312,11 @@ export async function exportSvgElementToPng(
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.scale(scale, scale);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = darkTheme ? '#071226' : '#ffffff';
     ctx.fillRect(0, 0, width + padding * 2, height + padding * 2 + titleHeight);
 
     if (title) {
-      ctx.fillStyle = '#0f172a';
+      ctx.fillStyle = darkTheme ? '#f1f5f9' : '#0f172a';
       ctx.font = '700 18px Sarabun, "Noto Sans Thai", Tahoma, sans-serif';
       ctx.fillText(title, padding, padding + 18);
     }
