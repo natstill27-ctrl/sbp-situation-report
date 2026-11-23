@@ -13,8 +13,13 @@ export type BasemapType = 'osm' | 'satellite' | 'topo';
 const DEFAULT_CENTER: [number, number] = [6.48, 101.42];
 const DEFAULT_ZOOM = 9;
 
-function createPinIcon(color: string, large = false): L.DivIcon {
-  const size = large ? 32 : 24;
+function createPinIcon(color: string, large = false, badgeCount?: number): L.DivIcon {
+  const size = large ? 34 : 26;
+  const badge =
+    badgeCount && badgeCount > 1
+      ? `<circle cx="18.2" cy="5.8" r="4.8" fill="#0f172a" stroke="#ffffff" stroke-width="1.2"/>
+         <text x="18.2" y="8" text-anchor="middle" font-size="6.8" font-weight="700" fill="#ffffff" font-family="sans-serif">${badgeCount > 99 ? '99+' : badgeCount}</text>`
+      : '';
   return L.divIcon({
     className: 'custom-map-pin',
     iconSize: [size, size],
@@ -23,6 +28,7 @@ function createPinIcon(color: string, large = false): L.DivIcon {
     html: `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="${color}" stroke="#ffffff" stroke-width="1.8"/>
       <circle cx="12" cy="9" r="2.8" fill="#ffffff"/>
+      ${badge}
     </svg>`,
   });
 }
@@ -61,11 +67,22 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
+export interface PreviewPin {
+  id: string;
+  lat: number;
+  lng: number;
+  label: string;
+  eventCount?: number;
+  active?: boolean;
+}
+
 interface PickerMapProps {
   mode: 'picker';
   lat: number | null;
   lng: number | null;
   onPickCoordinate: (lat: number, lng: number) => void;
+  previewMarkers?: PreviewPin[];
+  onSelectPreviewMarker?: (id: string) => void;
   showBoundaries?: boolean;
   offlinePmtilesUrl?: string;
   height?: string;
@@ -93,15 +110,20 @@ export function LeafletMap(props: LeafletMapProps) {
   const baseKeyRef = useRef<string>('');
   const boundaryLayerRef = useRef<L.GeoJSON | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const previewLayerRef = useRef<L.LayerGroup | null>(null);
   const pickerMarkerRef = useRef<L.Marker | null>(null);
   const onPickRef = useRef<((lat: number, lng: number) => void) | undefined>(
     props.mode === 'picker' ? props.onPickCoordinate : undefined
+  );
+  const onSelectPreviewRef = useRef<((id: string) => void) | undefined>(
+    props.mode === 'picker' ? props.onSelectPreviewMarker : undefined
   );
   const onSelectRef = useRef<((id: string) => void) | undefined>(
     props.mode === 'overview' ? props.onSelectIncident : undefined
   );
 
   onPickRef.current = props.mode === 'picker' ? props.onPickCoordinate : undefined;
+  onSelectPreviewRef.current = props.mode === 'picker' ? props.onSelectPreviewMarker : undefined;
   onSelectRef.current = props.mode === 'overview' ? props.onSelectIncident : undefined;
 
   useEffect(() => {
@@ -132,6 +154,7 @@ export function LeafletMap(props: LeafletMapProps) {
       boundaryLayer.addTo(map);
     }
 
+    const previewLayer = L.layerGroup().addTo(map);
     const markerLayer = L.layerGroup().addTo(map);
 
     if (props.mode === 'picker') {
@@ -142,6 +165,7 @@ export function LeafletMap(props: LeafletMapProps) {
 
     mapRef.current = map;
     boundaryLayerRef.current = boundaryLayer;
+    previewLayerRef.current = previewLayer;
     markerLayerRef.current = markerLayer;
 
     // Ensure Leaflet measures container properly after render
@@ -153,6 +177,7 @@ export function LeafletMap(props: LeafletMapProps) {
       mapRef.current = null;
       baseLayerRef.current = null;
       boundaryLayerRef.current = null;
+      previewLayerRef.current = null;
       markerLayerRef.current = null;
       pickerMarkerRef.current = null;
     };
@@ -194,12 +219,15 @@ export function LeafletMap(props: LeafletMapProps) {
     const layer = markerLayerRef.current;
     if (!map || !layer) return;
 
+    const activeCount = props.previewMarkers?.find((m) => m.active)?.eventCount;
+    const activeIcon = createPinIcon('#b91c1c', true, activeCount);
+
     if (props.lat !== null && props.lng !== null) {
       const pos: [number, number] = [props.lat, props.lng];
       if (!pickerMarkerRef.current) {
         const marker = L.marker(pos, {
           draggable: true,
-          icon: createPinIcon('#b91c1c', true),
+          icon: activeIcon,
         });
         marker.on('dragend', () => {
           const ll = marker.getLatLng();
@@ -209,13 +237,42 @@ export function LeafletMap(props: LeafletMapProps) {
         pickerMarkerRef.current = marker;
       } else {
         pickerMarkerRef.current.setLatLng(pos);
+        pickerMarkerRef.current.setIcon(activeIcon);
       }
-      map.setView(pos, Math.max(map.getZoom(), 12), { animate: true });
+      const targetMinZoom = props.previewMarkers && props.previewMarkers.length > 1 ? 10 : 12;
+      map.setView(pos, Math.max(map.getZoom(), targetMinZoom), { animate: true });
     } else if (pickerMarkerRef.current) {
       layer.removeLayer(pickerMarkerRef.current);
       pickerMarkerRef.current = null;
     }
-  }, [props.mode, props.mode === 'picker' ? props.lat : null, props.mode === 'picker' ? props.lng : null]);
+  }, [
+    props.mode,
+    props.mode === 'picker' ? props.lat : null,
+    props.mode === 'picker' ? props.lng : null,
+    props.mode === 'picker' ? props.previewMarkers : null,
+  ]);
+
+  // Multi-area draft preview pins sync (picker mode)
+  useEffect(() => {
+    const previewLayer = previewLayerRef.current;
+    if (!previewLayer) return;
+    previewLayer.clearLayers();
+    if (props.mode !== 'picker' || !props.previewMarkers || props.previewMarkers.length === 0) {
+      return;
+    }
+
+    for (const pin of props.previewMarkers) {
+      if (pin.active) continue;
+      const marker = L.marker([pin.lat, pin.lng], {
+        icon: createPinIcon('#0f4c81', false, pin.eventCount),
+      });
+      marker.bindTooltip(escapeHtml(pin.label), { direction: 'top', offset: [0, -24] });
+      marker.on('click', () => {
+        onSelectPreviewRef.current?.(pin.id);
+      });
+      marker.addTo(previewLayer);
+    }
+  }, [props.mode, props.mode === 'picker' ? props.previewMarkers : null]);
 
   // Overview markers sync
   useEffect(() => {
@@ -241,7 +298,7 @@ export function LeafletMap(props: LeafletMapProps) {
               className: 'custom-milsymbol-icon',
               ...getMilSymbolIconOptions(item.category, isSelected),
             })
-          : createPinIcon(color, isSelected);
+          : createPinIcon(color, isSelected, item.eventCount);
       const marker = L.marker([lat, lng], { icon });
 
       const area = [
@@ -252,9 +309,15 @@ export function LeafletMap(props: LeafletMapProps) {
         .filter(Boolean)
         .join(' ');
 
+      const countLine =
+        item.eventCount && item.eventCount > 1
+          ? `<div style="font-size:12px;color:#b45309;font-weight:700;margin-bottom:2px;">จำนวน ${item.eventCount} เหตุการณ์</div>`
+          : '';
+
       const popupHtml = `
         <div style="font-family:'Sarabun','Noto Sans Thai',sans-serif;min-width:220px;max-width:290px;line-height:1.45;">
           <div style="font-weight:700;color:${color};margin-bottom:4px;">${escapeHtml(item.category)}</div>
+          ${countLine}
           <div style="font-size:12px;color:#334155;"><strong>วัน-เวลา:</strong> ${escapeHtml(formatThaiDateTime(item.occurredAt))}</div>
           <div style="font-size:12px;color:#334155;"><strong>พื้นที่:</strong> ${escapeHtml(area || 'ไม่ระบุ')}</div>
           <div style="font-size:12px;color:#334155;"><strong>พิกัด:</strong> ${lat.toFixed(5)}, ${lng.toFixed(5)}</div>

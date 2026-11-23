@@ -58,6 +58,20 @@ export function IpbDashboardPage({
     });
   }, [incidents, dateFrom, dateTo, provinceFilter, categoryFilter]);
 
+  const getEventCount = (item: IncidentRecord) =>
+    item.eventCount && item.eventCount > 0 ? item.eventCount : 1;
+
+  const totalEventCount = useMemo(
+    () => filtered.reduce((acc, item) => acc + getEventCount(item), 0),
+    [filtered]
+  );
+
+  const targetAreaEventCount = useMemo(
+    () =>
+      filtered.reduce((acc, item) => acc + (item.inTargetArea ? getEventCount(item) : 0), 0),
+    [filtered]
+  );
+
   // 1. Province counts
   const provinceStats = useMemo(() => {
     const counts: Record<string, number> = {
@@ -68,10 +82,11 @@ export function IpbDashboardPage({
       อื่นๆ: 0,
     };
     for (const item of filtered) {
+      const weight = getEventCount(item);
       if (item.province in counts) {
-        counts[item.province] += 1;
+        counts[item.province] += weight;
       } else {
-        counts['อื่นๆ'] += 1;
+        counts['อื่นๆ'] += weight;
       }
     }
     return [
@@ -92,7 +107,7 @@ export function IpbDashboardPage({
       const label = item.district
         ? `อ.${item.district}${item.province ? ` (${item.province})` : ''}`
         : item.province || 'ไม่ระบุพื้นที่';
-      map.set(label, (map.get(label) || 0) + 1);
+      map.set(label, (map.get(label) || 0) + getEventCount(item));
     }
     return Array.from(map.entries())
       .map(([label, count]) => ({ label, count }))
@@ -106,7 +121,7 @@ export function IpbDashboardPage({
     for (const item of filtered) {
       const ym = (item.occurredAt || item.createdAt || '').slice(0, 7);
       if (/^\d{4}-\d{2}$/.test(ym)) {
-        map.set(ym, (map.get(ym) || 0) + 1);
+        map.set(ym, (map.get(ym) || 0) + getEventCount(item));
       }
     }
     return Array.from(map.entries())
@@ -123,17 +138,17 @@ export function IpbDashboardPage({
   const categoryStats = useMemo(() => {
     const map = new Map<string, number>();
     for (const item of filtered) {
-      map.set(item.category, (map.get(item.category) || 0) + 1);
+      map.set(item.category, (map.get(item.category) || 0) + getEventCount(item));
     }
     return Array.from(map.entries())
       .map(([category, count], idx) => ({
         category,
         count,
-        pct: filtered.length ? Math.round((count / filtered.length) * 100) : 0,
+        pct: totalEventCount ? Math.round((count / totalEventCount) * 100) : 0,
         color: getCategoryColor(category, idx),
       }))
       .sort((a, b) => b.count - a.count);
-  }, [filtered]);
+  }, [filtered, totalEventCount]);
 
   // 5. IPB Area × Category Matrix (by Province and District)
   const activeCategories = useMemo(() => {
@@ -148,12 +163,13 @@ export function IpbDashboardPage({
   const matrixRows = useMemo(() => {
     const map = new Map<string, { area: string; counts: Record<string, number>; total: number }>();
     for (const item of filtered) {
+      const weight = getEventCount(item);
       const areaKey = item.province
         ? `${item.province === 'สงขลา' ? '4 อ.สงขลา' : `จว.${item.province}`}${item.district ? ` / อ.${item.district}` : ''}`
         : 'ไม่ระบุพื้นที่';
       const existing = map.get(areaKey) || { area: areaKey, counts: {}, total: 0 };
-      existing.counts[item.category] = (existing.counts[item.category] || 0) + 1;
-      existing.total += 1;
+      existing.counts[item.category] = (existing.counts[item.category] || 0) + weight;
+      existing.total += weight;
       map.set(areaKey, existing);
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
@@ -179,7 +195,7 @@ export function IpbDashboardPage({
 
     const text = toThaiDigits(
       `สรุปสถิติสถานการณ์เพื่อประกอบการวิเคราะห์ IPB (${rangeLabel})\n` +
-        `รวมเหตุการณ์ทั้งหมด: ${filtered.length} ครั้ง\n` +
+        `รวมเหตุการณ์ทั้งหมด: ${totalEventCount} ครั้ง\n` +
         `จำแนกรายจังหวัด: ${provLines || '-'}\n` +
         `พื้นที่เกิดเหตุสูงสุด: ${topDistrict ? `${topDistrict.label} (${topDistrict.count} ครั้ง)` : '-'}\n` +
         `จำแนกตามประเภทเหตุการณ์:\n${catLines || '-'}`
@@ -430,9 +446,9 @@ export function IpbDashboardPage({
           <div className="kpi-grid">
             <div className="gov-card kpi-card kpi-primary">
               <span className="kpi-label">เหตุการณ์ทั้งหมด (ตามตัวกรอง)</span>
-              <strong className="kpi-value">{filtered.length}</strong>
+              <strong className="kpi-value">{totalEventCount}</strong>
               <span className="kpi-sub">
-                ในเขตพื้นที่หลัก {filtered.filter((i) => i.inTargetArea).length} เหตุการณ์
+                ในเขตพื้นที่หลัก {targetAreaEventCount} เหตุการณ์
               </span>
             </div>
 
@@ -716,7 +732,7 @@ export function IpbDashboardPage({
                         {matrixRows.reduce((acc, r) => acc + (r.counts[cat] || 0), 0)}
                       </th>
                     ))}
-                    <th className="num-col">{filtered.length}</th>
+                    <th className="num-col">{totalEventCount}</th>
                   </tr>
                 </tfoot>
               </table>

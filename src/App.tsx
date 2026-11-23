@@ -169,6 +169,42 @@ export function App() {
     return finalRecord;
   };
 
+  const handleSaveIncidentBatch = async (records: IncidentRecord[]): Promise<IncidentRecord[]> => {
+    if (records.length === 0) return [];
+    await saveIncidentsBatch(records);
+    setIncidents(await loadIncidents());
+
+    if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
+      const updatedRecords: IncidentRecord[] = [];
+      for (const rec of records) {
+        const syncRes = await sendIncidentToGas(rec, settings);
+        const returnedRow =
+          syncRes.responseData &&
+          typeof syncRes.responseData === 'object' &&
+          'legacyRowNumber' in syncRes.responseData
+            ? Number((syncRes.responseData as Record<string, unknown>).legacyRowNumber)
+            : undefined;
+        updatedRecords.push({
+          ...rec,
+          syncStatus: syncRes.ok ? 'synced' : 'failed',
+          lastSyncAttempt: new Date().toISOString(),
+          syncError: syncRes.ok ? undefined : syncRes.message,
+          legacyRowNumber:
+            returnedRow && Number.isFinite(returnedRow)
+              ? returnedRow
+              : rec.legacyRowNumber,
+        });
+      }
+      await saveIncidentsBatch(updatedRecords);
+      setIncidents(await loadIncidents());
+      setLastSavedRecord(updatedRecords[0]);
+      return updatedRecords;
+    }
+
+    setLastSavedRecord(records[0]);
+    return records;
+  };
+
   const handleRetrySyncOne = async (record: IncidentRecord) => {
     const syncRes = await sendIncidentToGas(record, settings);
     const updated: IncidentRecord = {
@@ -278,6 +314,7 @@ export function App() {
                   editingIncident={editingIncident}
                   onCancelEdit={() => setEditingIncident(null)}
                   onSaveIncident={handleSaveIncident}
+                  onSaveIncidentBatch={handleSaveIncidentBatch}
                   lastSavedRecord={lastSavedRecord}
                 />
               )}

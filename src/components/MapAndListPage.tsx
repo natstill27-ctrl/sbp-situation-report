@@ -96,6 +96,15 @@ export function MapAndListPage({
     [incidents]
   );
 
+  const totalFilteredEvents = useMemo(
+    () =>
+      filtered.reduce(
+        (acc, item) => acc + (item.eventCount && item.eventCount > 0 ? item.eventCount : 1),
+        0
+      ),
+    [filtered]
+  );
+
   const handleCopy = async (record: IncidentRecord, mode: 'line' | 'paper') => {
     const text =
       mode === 'line' ? formatIncidentForLine(record) : formatIncidentForPaper(record, true);
@@ -302,7 +311,10 @@ export function MapAndListPage({
       <div className="gov-card map-card" style={{ marginBottom: '1.25rem' }}>
         <div className="card-header-row">
           <div>
-            <h3 className="card-title">แผนที่รวมตำแหน่งเหตุการณ์ ({filtered.length} รายการ)</h3>
+            <h3 className="card-title">
+              แผนที่รวมตำแหน่งเหตุการณ์ ({filtered.length} รายการ
+              {totalFilteredEvents > filtered.length ? ` • รวม ${totalFilteredEvents} เหตุการณ์` : ''})
+            </h3>
             <p className="card-subtitle">คลิกหมุดบนแผนที่เพื่อดูรายละเอียด หรือคลิกแถวในตารางเพื่อโฟกัสตำแหน่ง</p>
           </div>
           <div className="checkbox-row" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
@@ -340,7 +352,10 @@ export function MapAndListPage({
       {/* Incidents Table */}
       <div className="gov-card table-card">
         <div className="card-header-row">
-          <h3 className="card-title">รายการเหตุการณ์ทั้งหมด ({filtered.length} รายการ)</h3>
+          <h3 className="card-title">
+            รายการเหตุการณ์ทั้งหมด ({filtered.length} รายการ
+            {totalFilteredEvents > filtered.length ? ` • รวม ${totalFilteredEvents} เหตุการณ์` : ''})
+          </h3>
         </div>
 
         {filtered.length === 0 ? (
@@ -397,6 +412,11 @@ export function MapAndListPage({
                         >
                           {item.category}
                         </span>
+                        {item.eventCount && item.eventCount > 1 && (
+                          <span className="badge badge-warn" style={{ marginLeft: 4 }}>
+                            ×{item.eventCount} เหตุการณ์
+                          </span>
+                        )}
                         <div className="cell-area">{area || 'ไม่ระบุพื้นที่'}</div>
                         {!item.inTargetArea && (
                           <span className="badge badge-warn">นอกเขต 3 จว.+4 อ.</span>

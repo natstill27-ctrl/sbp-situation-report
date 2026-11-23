@@ -2,10 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS, buildSampleIncidents } from '../../data/defaults';
 import { decodeConfigHash, encodeConfigHash } from '../configShare';
 import { latLngToUtmString, parseCoordinateInput } from '../coordinates';
-import { buildIncidentsKml, formatIncidentForPaper } from '../exportUtils';
-import { buildGasPayload, generateGasReceiverCode, parsePulledGasResponse } from '../gasSync';
+import { buildIncidentsKml, formatIncidentForLine, formatIncidentForPaper } from '../exportUtils';
+import {
+  buildGasPayload,
+  buildLegacyLocationText,
+  generateGasReceiverCode,
+  parsePulledGasResponse,
+} from '../gasSync';
 import { lookupAreaByLatLng, matchAreaByThaiNames } from '../geoLookup';
-import { extractPaperMetadata, formatThaiDateTime, fromThaiDigits, toThaiDigits } from '../thaiDate';
+import {
+  extractMultiAreaPaper,
+  extractPaperMetadata,
+  formatThaiDateTime,
+  fromThaiDigits,
+  toThaiDigits,
+} from '../thaiDate';
 
 describe('Coordinate Auto-Parser', () => {
   it('parses decimal Lat, Lng and converts to MGRS and UTM', () => {
@@ -296,5 +307,134 @@ describe('Tactical Keywords, Quick Config Share & KML Export', () => {
     expect(kml).toContain('<kml xmlns="http://www.opengis.net/kml/2.2">');
     expect(kml).toContain(`<coordinates>${sample.lng},${sample.lat},0</coordinates>`);
     expect(kml).toContain('&lt;Tag&gt; &amp; &quot;Quote&quot;');
+  });
+});
+
+describe('Multi-Area Paper Parser & eventCount Support', () => {
+  it('parses Thai military 4-digit time ranges and standalone military hours', () => {
+    const resRange = extractPaperMetadata(
+      'เมื่อ ๑๕ มี.ค.๖๘, ๐๔๑๕ - ๐๕๓๐ เกิดเหตุโปรยตะปูเรือใบ ต.บานา อ.เมืองปัตตานี จว.ปัตตานี',
+      DEFAULT_CATEGORIES
+    );
+    expect(resRange.occurredAt).toBe('2025-03-15T04:15');
+    expect(resRange.province).toBe('ปัตตานี');
+    expect(resRange.district).toBe('เมืองปัตตานี');
+
+    const resSingle = extractPaperMetadata(
+      'เมื่อ 12 เม.ย. 2568 เวลา 1430 น. ลอบวางระเบิด อ.สายบุรี จว.ปัตตานี',
+      DEFAULT_CATEGORIES
+    );
+    expect(resSingle.occurredAt).toBe('2025-04-12T14:30');
+    expect(resSingle.category).toBe('ระเบิด');
+  });
+
+  it('extracts coordinated multi-area reports with wrapped breakdown clauses', () => {
+    const syntheticReport = [
+      '๒.๑ เมื่อ ๑๘ เม.ย.๖๘, ๐๒๔๕ - ๐๔๑๐ เกิดเหตุคนร้ายลอบวางระเบิดและสร้างสถานการณ์ก่อกวน ในพื้นที่ ๓ อำเภอ ของ จว.ปัตตานี จำนวน ๘ จุด ดังนี้',
+      '  ๒.๑.๑ อ.ยะรัง จำนวน ๒ เหตุการณ์ เป็นเหตุสร้างสถานการณ์ก่อกวนด้วยการเผาเสาไฟริมทาง ทำให้เสาไฟเสียหาย จำนวน ๔ ต้น ไม่มีผู้ได้รับบาดเจ็บหรือเสียชีวิต พิกัด 6.7512, 101.3045',
+      '  ๒.๑.๒ อ.โคกโพธิ์ จำนวน ๔ เหตุการณ์ แยกเป็นเหตุลอบวางระเบิด ๒ เหตุการณ์,',
+      'ยิงทำลายป้ายจราจร ๑ เหตุการณ์ และเผาป้อมจุดตรวจ ๑ เหตุการณ์ ทำให้ป้อมเสียหาย จำนวน ๑ หลัง',
+      '  ๒.๑.๓ อ.สายบุรี จำนวน ๒ เหตุการณ์ เป็นเหตุสร้างสถานการณ์ก่อกวนด้วยการเผายางรถยนต์ ไม่มีผู้ได้รับบาดเจ็บหรือเสียชีวิต',
+    ].join('\n');
+
+    const parsed = extractMultiAreaPaper(syntheticReport, DEFAULT_CATEGORIES);
+    expect(parsed.occurredAt).toBe('2025-04-18T02:45');
+    expect(parsed.province).toBe('ปัตตานี');
+    expect(parsed.reportedTotalCount).toBe(8);
+    expect(parsed.items).toHaveLength(5);
+
+    const sumCounts = parsed.items.reduce((acc, item) => acc + item.eventCount, 0);
+    expect(sumCounts).toBe(8);
+
+    // Item 1: อ.ยะรัง (explicit coord, harassment despite burning pole)
+    expect(parsed.items[0].district).toBe('ยะรัง');
+    expect(parsed.items[0].province).toBe('ปัตตานี');
+    expect(parsed.items[0].category).toBe('ก่อกวน/โปรยตะปูเรือใบ-เผายาง');
+    expect(parsed.items[0].eventCount).toBe(2);
+    expect(parsed.items[0].coordMatched).toBe(true);
+    expect(parsed.items[0].lat).toBeCloseTo(6.7512, 4);
+
+    // Items 2..4: อ.โคกโพธิ์ split into 3 distinct categories
+    expect(parsed.items[1].district).toBe('โคกโพธิ์');
+    expect(parsed.items[1].category).toBe('ระเบิด');
+    expect(parsed.items[1].eventCount).toBe(2);
+    expect(parsed.items[1].coordMatched).toBe(false);
+    expect(parsed.items[1].lat).not.toBeNull();
+
+    expect(parsed.items[2].district).toBe('โคกโพธิ์');
+    expect(parsed.items[2].category).toBe('ใช้อาวุธปืน/ลอบยิง');
+    expect(parsed.items[2].eventCount).toBe(1);
+
+    expect(parsed.items[3].district).toBe('โคกโพธิ์');
+    expect(parsed.items[3].category).toBe('วางเพลิง');
+    expect(parsed.items[3].eventCount).toBe(1);
+
+    // Item 5: อ.สายบุรี
+    expect(parsed.items[4].district).toBe('สายบุรี');
+    expect(parsed.items[4].category).toBe('ก่อกวน/โปรยตะปูเรือใบ-เผายาง');
+    expect(parsed.items[4].eventCount).toBe(2);
+  });
+
+  it('propagates eventCount and batchId across sync, round-trip pull, and exports', () => {
+    const sample = buildSampleIncidents()[0];
+    const batchRec = {
+      ...sample,
+      id: 'INC-2568-BATCH-01',
+      category: 'ก่อกวน/โปรยตะปูเรือใบ-เผายาง',
+      eventCount: 3,
+      batchId: 'BATCH-2568-01',
+      details: 'เผายางรถยนต์ 3 จุดในพื้นที่ทดสอบ',
+    };
+
+    const legacyLoc = buildLegacyLocationText(batchRec);
+    expect(legacyLoc).toContain('[ก่อกวน/โปรยตะปูเรือใบ-เผายาง ×3]');
+
+    const payload = buildGasPayload(batchRec, DEFAULT_SETTINGS);
+    expect(payload.eventCount).toBe(3);
+    expect(payload.batchId).toBe('BATCH-2568-01');
+
+    const lineText = formatIncidentForLine(batchRec);
+    expect(lineText).toContain('(จำนวน 3 เหตุการณ์)');
+    const paperText = formatIncidentForPaper(batchRec, false);
+    expect(paperText).toContain('(จำนวน 3 เหตุการณ์)');
+    expect(buildIncidentsKml([batchRec])).toContain('จำนวนเหตุการณ์: 3');
+
+    const pulled = parsePulledGasResponse(
+      {
+        ok: true,
+        ipbRows: [
+          {
+            id: 'INC-IPB-MULTI',
+            occurredAt: '2025-04-18T02:45',
+            lat: 6.75,
+            lng: 101.3,
+            category: 'ระเบิด',
+            details: 'ทดสอบดึงยอด eventCount',
+            reporter: 'ทม.ทดสอบ',
+            eventCount: 4,
+            batchId: 'BATCH-2568-02',
+          },
+        ],
+        legacyRows: [
+          {
+            rowNumber: 12,
+            date: '2025-04-19',
+            incident_type: DEFAULT_SETTINGS.legacyIncidentType,
+            location: '[วางเพลิง ×2] อ.ยะรัง จว.ปัตตานี — ทดสอบดึง legacy ×N',
+            gps: '6.7510,101.3010',
+            reporter_name: 'จ.ส.อ.ทดสอบ',
+          },
+        ],
+      },
+      DEFAULT_SETTINGS
+    );
+
+    const ipbMulti = pulled.records.find((r) => r.id === 'INC-IPB-MULTI');
+    expect(ipbMulti?.eventCount).toBe(4);
+    expect(ipbMulti?.batchId).toBe('BATCH-2568-02');
+
+    const legacyMulti = pulled.records.find((r) => r.id === 'LEGACY-ROW-12');
+    expect(legacyMulti?.category).toBe('วางเพลิง');
+    expect(legacyMulti?.eventCount).toBe(2);
   });
 });

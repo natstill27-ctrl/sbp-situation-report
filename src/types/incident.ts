@@ -52,6 +52,34 @@ export interface IncidentRecord {
   syncError?: string;
   sourceSheet?: 'local' | 'ipb' | 'legacy';
   legacyRowNumber?: number;
+  eventCount?: number;
+  batchId?: string;
+}
+
+export interface MultiAreaDraftItem {
+  id: string;
+  occurredAt: string;
+  category: string;
+  province: string;
+  district: string;
+  subdistrict: string;
+  lat: number | null;
+  lng: number | null;
+  eventCount: number;
+  details: string;
+  damageSummary: string;
+  casualtiesSummary: string;
+  coordMatched: boolean;
+  areaMatched: boolean;
+}
+
+export interface MultiAreaParseResult {
+  occurredAt?: string;
+  province?: string;
+  reportedTotalCount?: number;
+  items: MultiAreaDraftItem[];
+  matchedHints: string[];
+  warnings: string[];
 }
 
 export interface GasFieldMapping {

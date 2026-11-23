@@ -40,7 +40,9 @@ export function buildLegacyLocationText(record: IncidentRecord): string {
     .filter(Boolean)
     .join(' ');
 
-  const prefix = `[${record.category}]${area ? ` ${area}` : ''}`;
+  const count = record.eventCount && record.eventCount > 1 ? Math.round(record.eventCount) : 1;
+  const countTag = count > 1 ? ` ×${count}` : '';
+  const prefix = `[${record.category}${countTag}]${area ? ` ${area}` : ''}`;
   const details = (record.details || '').trim();
   return details ? `${prefix} — ${details}` : prefix;
 }
@@ -95,6 +97,10 @@ export function buildGasPayload(record: IncidentRecord, settings: AppSettings): 
       payload[targetKey] = values[key];
     }
   }
+  payload.eventCount = record.eventCount && record.eventCount > 1 ? Math.round(record.eventCount) : 1;
+  if (record.batchId) {
+    payload.batchId = record.batchId;
+  }
   return payload;
 }
 
@@ -129,12 +135,24 @@ function normalizeOccurredAt(value: unknown): string {
   return str;
 }
 
-function extractBracketCategory(location: string, categories: string[]): string | null {
+function extractBracketMeta(
+  location: string,
+  categories: string[]
+): { category: string | null; eventCount?: number } {
   const match = location.match(/^\[([^\]]+)\]/);
-  if (!match) return null;
-  const candidate = match[1].trim();
-  if (categories.includes(candidate)) return candidate;
-  return candidate || null;
+  if (!match) return { category: null };
+  let raw = match[1].trim();
+  let eventCount: number | undefined;
+  const countMatch = raw.match(/\s*[×xX*]\s*(\d+)\s*$/);
+  if (countMatch) {
+    const parsed = Number(countMatch[1]);
+    if (Number.isFinite(parsed) && parsed > 1) {
+      eventCount = parsed;
+    }
+    raw = raw.slice(0, countMatch.index).trim();
+  }
+  const category = categories.includes(raw) ? raw : raw || null;
+  return { category, eventCount };
 }
 
 /**
@@ -207,6 +225,8 @@ export function parsePulledGasResponse(
     const createdAt =
       String(readMappedField(row, m.createdAt, 'createdAt') ?? '').trim() ||
       new Date().toISOString();
+    const eventCountVal = toOptionalNumber(row.eventCount);
+    const batchIdVal = String(row.batchId ?? '').trim();
 
     ipbRecords.push({
       id,
@@ -228,6 +248,8 @@ export function parsePulledGasResponse(
       syncStatus: 'synced',
       sourceSheet: 'ipb',
       legacyRowNumber: toOptionalNumber(row.legacyRowNumber) ?? undefined,
+      ...(eventCountVal && eventCountVal > 1 ? { eventCount: Math.round(eventCountVal) } : {}),
+      ...(batchIdVal ? { batchId: batchIdVal } : {}),
     });
   }
 
@@ -307,10 +329,8 @@ export function parsePulledGasResponse(
     const fallbackOther = settings.categories.includes('อื่นๆ')
       ? 'อื่นๆ'
       : settings.categories[0] || 'อื่นๆ';
-    const category =
-      extractBracketCategory(locationText, settings.categories) ||
-      paperMeta.category ||
-      fallbackOther;
+    const bracketMeta = extractBracketMeta(locationText, settings.categories);
+    const category = bracketMeta.category || paperMeta.category || fallbackOther;
 
     const id = row.rowNumber
       ? `LEGACY-ROW-${row.rowNumber}`
@@ -337,6 +357,9 @@ export function parsePulledGasResponse(
       syncStatus: 'synced',
       sourceSheet: 'legacy',
       legacyRowNumber: typeof row.rowNumber === 'number' && row.rowNumber > 1 ? row.rowNumber : undefined,
+      ...(bracketMeta.eventCount && bracketMeta.eventCount > 1
+        ? { eventCount: bracketMeta.eventCount }
+        : {}),
     });
   }
 

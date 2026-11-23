@@ -29,6 +29,7 @@ export function exportIncidentsToCsv(incidents: IncidentRecord[], filenamePrefix
     'วัน-เวลาเกิดเหตุ (พ.ศ.)',
     'วัน-เวลาเกิดเหตุ (ISO)',
     'ประเภทเหตุการณ์',
+    'จำนวนเหตุการณ์',
     'จังหวัด',
     'อำเภอ',
     'ตำบล',
@@ -48,6 +49,7 @@ export function exportIncidentsToCsv(incidents: IncidentRecord[], filenamePrefix
     formatThaiNumericDate(r.occurredAt),
     r.occurredAt,
     r.category,
+    r.eventCount && r.eventCount > 0 ? r.eventCount : 1,
     r.province || '-',
     r.district || '-',
     r.subdistrict || '-',
@@ -99,8 +101,11 @@ export function formatIncidentForLine(record: IncidentRecord): string {
       ? `พิกัด: ${record.lat}, ${record.lng} (MGRS: ${record.mgrs})\nแผนที่: https://maps.google.com/?q=${record.lat},${record.lng}`
       : `พิกัด: ${record.coordinateRaw || '-'}`;
 
+  const countSuffix =
+    record.eventCount && record.eventCount > 1 ? ` (จำนวน ${record.eventCount} เหตุการณ์)` : '';
+
   return [
-    `[รายงานสถานการณ์] ${record.category}`,
+    `[รายงานสถานการณ์] ${record.category}${countSuffix}`,
     `วัน-เวลา: ${dt}`,
     `พื้นที่: ${area || 'ไม่ระบุ'}`,
     coordLine,
@@ -127,7 +132,10 @@ export function formatIncidentForPaper(record: IncidentRecord, useThaiDigits = t
         ? `พิกัด ${record.lat}, ${record.lng}`
         : '';
 
-  const body = `เมื่อ ${dt} เกิดเหตุ${record.category} บริเวณพื้นที่ ${area || 'ไม่ระบุ'} ${coordPart ? `(${coordPart}) ` : ''}รายละเอียดเบื้องต้น: ${record.details} (ผู้รายงาน: ${record.reporter || '-'})`;
+  const countPart =
+    record.eventCount && record.eventCount > 1 ? ` (จำนวน ${record.eventCount} เหตุการณ์)` : '';
+
+  const body = `เมื่อ ${dt} เกิดเหตุ${record.category}${countPart} บริเวณพื้นที่ ${area || 'ไม่ระบุ'} ${coordPart ? `(${coordPart}) ` : ''}รายละเอียดเบื้องต้น: ${record.details} (ผู้รายงาน: ${record.reporter || '-'})`;
   return useThaiDigits ? toThaiDigits(body) : body;
 }
 
@@ -182,8 +190,10 @@ export function buildIncidentsKml(incidents: IncidentRecord[]): string {
         .filter(Boolean)
         .join(' ');
       const dt = formatThaiDateTime(r.occurredAt, { shortMonth: true, thaiDigits: false });
+      const count = r.eventCount && r.eventCount > 1 ? r.eventCount : 1;
       const desc = [
         `วัน-เวลา: ${dt}`,
+        ...(count > 1 ? [`จำนวนเหตุการณ์: ${count}`] : []),
         `พื้นที่: ${area || 'ไม่ระบุ'}`,
         `พิกัด: ${r.lat}, ${r.lng}`,
         `MGRS: ${r.mgrs || '-'}`,
@@ -194,7 +204,7 @@ export function buildIncidentsKml(incidents: IncidentRecord[]): string {
 
       return [
         '  <Placemark>',
-        `    <name>${escapeXml(r.category)}${area ? ` - ${escapeXml(area)}` : ''}</name>`,
+        `    <name>${escapeXml(r.category)}${count > 1 ? ` (×${count})` : ''}${area ? ` - ${escapeXml(area)}` : ''}</name>`,
         `    <styleUrl>#${resolveKmlStyleId(r.category)}</styleUrl>`,
         `    <description>${escapeXml(desc)}</description>`,
         '    <Point>',
