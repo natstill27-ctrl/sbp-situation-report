@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import {
+  Check,
   ClipboardCopy,
   CloudDownload,
   Database,
@@ -9,7 +10,9 @@ import {
   MapPin,
   RefreshCw,
   Search,
+  Sparkles,
   Trash2,
+  X,
 } from 'lucide-react';
 import type { AppSettings, IncidentRecord, SyncStatus } from '../types/incident';
 import { getCategoryColor } from '../utils/categoryColors';
@@ -20,8 +23,12 @@ import {
   formatIncidentForPaper,
 } from '../utils/exportUtils';
 import type { GasPullResult } from '../utils/gasSync';
-import { getTargetProvinces } from '../utils/geoLookup';
-import { formatThaiDateTime } from '../utils/thaiDate';
+import {
+  getDistrictsByProvince,
+  getSubdistrictsByDistrict,
+  getTargetProvinces,
+} from '../utils/geoLookup';
+import { classifyCategoryFromText, formatThaiDateTime } from '../utils/thaiDate';
 import { LeafletMap } from './LeafletMap';
 
 interface MapAndListPageProps {
@@ -34,6 +41,17 @@ interface MapAndListPageProps {
   onLoadSamples: () => Promise<void>;
   onClearAll: () => Promise<void>;
   onPullFromGas?: () => Promise<GasPullResult>;
+  onQuickUpdateIncident?: (record: IncidentRecord) => Promise<IncidentRecord>;
+  onQuickUpdateBatch?: (records: IncidentRecord[]) => Promise<IncidentRecord[]>;
+}
+
+interface QuickDraftState {
+  category: string;
+  eventCount: number;
+  province: string;
+  district: string;
+  subdistrict: string;
+  details: string;
 }
 
 const SYNC_STATUS_LABEL: Record<SyncStatus, string> = {
@@ -52,6 +70,8 @@ export function MapAndListPage({
   onLoadSamples,
   onClearAll,
   onPullFromGas,
+  onQuickUpdateIncident,
+  onQuickUpdateBatch,
 }: MapAndListPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [provinceFilter, setProvinceFilter] = useState('');
@@ -65,6 +85,15 @@ export function MapAndListPage({
   const [syncingAll, setSyncingAll] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [pullStatus, setPullStatus] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkCategory, setBulkCategory] = useState(settings.categories[0] || '');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState('');
+  const [updatingIds, setUpdatingIds] = useState<Set<string>>(() => new Set());
+  const [quickEditId, setQuickEditId] = useState<string | null>(null);
+  const [quickDraft, setQuickDraft] = useState<QuickDraftState | null>(null);
+  const [quickSaving, setQuickSaving] = useState(false);
 
   const provinces = useMemo(() => getTargetProvinces(), []);
 
@@ -136,6 +165,165 @@ export function MapAndListPage({
     } finally {
       setPulling(false);
     }
+  };
+
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((item) => selectedIds.has(item.id));
+
+  const toggleSelectAll = () => {
+    setBulkNotice('');
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        filtered.forEach((item) => next.delete(item.id));
+      } else {
+        filtered.forEach((item) => next.add(item.id));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setBulkNotice('');
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleInlineCategoryChange = async (item: IncidentRecord, nextCategory: string) => {
+    if (!onQuickUpdateIncident || !nextCategory || nextCategory === item.category) return;
+    setBulkNotice('');
+    setUpdatingIds((prev) => new Set(prev).add(item.id));
+    if (quickEditId === item.id && quickDraft) {
+      setQuickDraft({ ...quickDraft, category: nextCategory });
+    }
+    try {
+      await onQuickUpdateIncident({ ...item, category: nextCategory });
+    } finally {
+      setUpdatingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  };
+
+  const handleToggleQuickEdit = (item: IncidentRecord) => {
+    if (quickEditId === item.id) {
+      setQuickEditId(null);
+      setQuickDraft(null);
+      return;
+    }
+    setQuickEditId(item.id);
+    setQuickDraft({
+      category: item.category,
+      eventCount: item.eventCount && item.eventCount > 0 ? item.eventCount : 1,
+      province: item.province,
+      district: item.district,
+      subdistrict: item.subdistrict,
+      details: item.details,
+    });
+  };
+
+  const handleSaveQuickEdit = async (item: IncidentRecord) => {
+    if (!onQuickUpdateIncident || !quickDraft) return;
+    const trimmedDetails = quickDraft.details.trim();
+    if (!trimmedDetails) return;
+
+    const normalizedCount = quickDraft.eventCount > 0 ? Math.round(quickDraft.eventCount) : 1;
+    const nextRecord: IncidentRecord = {
+      ...item,
+      category: quickDraft.category,
+      province: quickDraft.province.trim(),
+      district: quickDraft.district.trim(),
+      subdistrict: quickDraft.subdistrict.trim(),
+      details: trimmedDetails,
+      inTargetArea: item.inTargetArea || Boolean(quickDraft.province.trim()),
+      ...(normalizedCount > 1 ? { eventCount: normalizedCount } : { eventCount: undefined }),
+    };
+
+    setQuickSaving(true);
+    setUpdatingIds((prev) => new Set(prev).add(item.id));
+    try {
+      const saved = await onQuickUpdateIncident(nextRecord);
+      setQuickEditId(null);
+      setQuickDraft(null);
+      setBulkNotice(
+        saved.syncStatus === 'synced'
+          ? `อัปเดต ${item.id} และซิงก์เข้าระบบเดิมเรียบร้อย`
+          : `บันทึกรายการ ${item.id} ลงเครื่องเรียบร้อย (${saved.syncError || 'รอซิงก์'})`
+      );
+    } finally {
+      setQuickSaving(false);
+      setUpdatingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  };
+
+  const runBatchUpdate = async (toUpdate: IncidentRecord[], verbLabel: string) => {
+    if (toUpdate.length === 0) return;
+    setBulkBusy(true);
+    setBulkNotice('');
+    try {
+      let updated: IncidentRecord[];
+      if (onQuickUpdateBatch) {
+        updated = await onQuickUpdateBatch(toUpdate);
+      } else if (onQuickUpdateIncident) {
+        updated = [];
+        for (const rec of toUpdate) {
+          updated.push(await onQuickUpdateIncident(rec));
+        }
+      } else {
+        return;
+      }
+      const syncedCount = updated.filter((r) => r.syncStatus === 'synced').length;
+      const syncText =
+        settings.autoSyncOnSave && settings.gasWebhookUrl.trim()
+          ? ` (ซิงก์สำเร็จ ${syncedCount}/${updated.length} รายการ)`
+          : ' (บันทึกลงเครื่องเรียบร้อย)';
+      setBulkNotice(`${verbLabel} ${updated.length} รายการ${syncText}`);
+      setSelectedIds(new Set());
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const handleApplyBulkCategory = async () => {
+    const targetCat = bulkCategory || settings.categories[0] || '';
+    if (!targetCat) return;
+    const toUpdate = incidents
+      .filter((item) => selectedIds.has(item.id) && item.category !== targetCat)
+      .map((item) => ({ ...item, category: targetCat }));
+    if (toUpdate.length === 0) {
+      setBulkNotice('รายการที่เลือกทั้งหมดใช้ประเภทนี้อยู่แล้ว');
+      return;
+    }
+    await runBatchUpdate(toUpdate, `เปลี่ยนประเภทเป็น "${targetCat}" จำนวน`);
+  };
+
+  const handleAutoReclassifySelected = async () => {
+    const selectedList = incidents.filter((item) => selectedIds.has(item.id));
+    const changed: IncidentRecord[] = [];
+    for (const item of selectedList) {
+      const detected = classifyCategoryFromText(item.details, settings.categories);
+      if (detected && detected !== item.category) {
+        changed.push({ ...item, category: detected });
+      }
+    }
+    if (changed.length === 0) {
+      setBulkNotice('จัดประเภทอัตโนมัติ: ไม่พบรายการที่ประเภทเปลี่ยนไปจากข้อความ');
+      return;
+    }
+    await runBatchUpdate(
+      changed,
+      `จัดประเภทใหม่อัตโนมัติจากข้อความ (${changed.length}/${selectedList.length} รายการ) จำนวน`
+    );
   };
 
   return (
@@ -368,7 +556,65 @@ export function MapAndListPage({
             รายการเหตุการณ์ทั้งหมด ({filtered.length} รายการ
             {totalFilteredEvents > filtered.length ? ` • รวม ${totalFilteredEvents} เหตุการณ์` : ''})
           </h3>
+          {onQuickUpdateIncident && (
+            <span className="cell-sub">
+              เปลี่ยนประเภทเหตุได้ทันทีจากช่องเลือกในตาราง หรือเลือกหลายแถวเพื่อจัดประเภทพร้อมกัน
+            </span>
+          )}
         </div>
+
+        {bulkNotice && (
+          <div className="inline-alert info" style={{ marginBottom: '0.75rem' }} role="status">
+            <span>{bulkNotice}</span>
+          </div>
+        )}
+
+        {selectedIds.size > 0 && (onQuickUpdateBatch || onQuickUpdateIncident) && (
+          <div className="bulk-action-bar" role="region" aria-label="เครื่องมือจัดการหลายรายการพร้อมกัน">
+            <strong>เลือกอยู่ {selectedIds.size} รายการ</strong>
+            <select
+              aria-label="เลือกประเภทใหม่สำหรับรายการที่เลือก"
+              className="form-select bulk-cat-select"
+              value={bulkCategory}
+              onChange={(e) => setBulkCategory(e.target.value)}
+              disabled={bulkBusy}
+            >
+              {settings.categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={() => void handleApplyBulkCategory()}
+              disabled={bulkBusy}
+            >
+              <Check size={14} aria-hidden="true" />
+              <span>{bulkBusy ? 'กำลังอัปเดต...' : `เปลี่ยนประเภทที่เลือก (${selectedIds.size})`}</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              onClick={() => void handleAutoReclassifySelected()}
+              disabled={bulkBusy}
+              title="วิเคราะห์รายละเอียดข้อความใหม่ด้วยตัวคัดแยกอัตโนมัติ"
+            >
+              <Sparkles size={14} aria-hidden="true" />
+              <span>จัดประเภทใหม่อัตโนมัติจากข้อความ</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              onClick={() => setSelectedIds(new Set())}
+              disabled={bulkBusy}
+            >
+              <X size={14} aria-hidden="true" />
+              <span>ยกเลิกการเลือก</span>
+            </button>
+          </div>
+        )}
 
         {filtered.length === 0 ? (
           <p className="empty-table-note">ไม่พบรายการเหตุการณ์ตามเงื่อนไขที่เลือก</p>
@@ -377,6 +623,14 @@ export function MapAndListPage({
             <table className="gov-table">
               <thead>
                 <tr>
+                  <th style={{ width: 34, textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      aria-label="เลือก/ยกเลิกทุกรายการที่แสดง"
+                      checked={allFilteredSelected}
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
                   <th>วัน-เวลา (พ.ศ.)</th>
                   <th>ประเภท / พื้นที่</th>
                   <th>พิกัด (Lat/Lng &amp; MGRS)</th>
@@ -398,146 +652,378 @@ export function MapAndListPage({
                     .filter(Boolean)
                     .join(' ');
                   const isSelected = selectedId === item.id;
+                  const isUpdating = updatingIds.has(item.id);
+                  const isQuickEditing = quickEditId === item.id && quickDraft !== null;
+                  const catOptions = settings.categories.includes(item.category)
+                    ? settings.categories
+                    : [item.category, ...settings.categories];
 
                   return (
-                    <tr
-                      key={item.id}
-                      className={isSelected ? 'selected-row' : ''}
-                      onClick={() => setSelectedId(item.id)}
-                    >
-                      <td className="nowrap">
-                        <div className="cell-primary">{formatThaiDateTime(item.occurredAt)}</div>
-                        <div className="cell-sub">{item.id}</div>
-                        {item.sourceSheet === 'legacy' && (
-                          <span className="badge badge-info" style={{ marginTop: 3 }}>
-                            ชีต1 เดิม
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <span
-                          className="cat-pill"
-                          style={{
-                            borderColor: catColor,
-                            color: catColor,
-                          }}
+                    <Fragment key={item.id}>
+                      <tr
+                        className={isSelected ? 'selected-row' : ''}
+                        onClick={() => setSelectedId(item.id)}
+                      >
+                        <td
+                          style={{ textAlign: 'center', verticalAlign: 'top' }}
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          {item.category}
-                        </span>
-                        {item.eventCount && item.eventCount > 1 && (
-                          <span className="badge badge-warn" style={{ marginLeft: 4 }}>
-                            ×{item.eventCount} เหตุการณ์
-                          </span>
-                        )}
-                        <div className="cell-area">{area || 'ไม่ระบุพื้นที่'}</div>
-                        {!item.inTargetArea && (
-                          <span className="badge badge-warn">นอกเขต 3 จว.+4 อ.</span>
-                        )}
-                      </td>
-                      <td className="nowrap">
-                        {item.lat !== null && item.lng !== null ? (
-                          <>
-                            <div className="cell-primary">
-                              {item.lat.toFixed(5)}, {item.lng.toFixed(5)}
-                            </div>
-                            <div className="cell-sub">{item.mgrs}</div>
-                          </>
-                        ) : (
-                          <span className="cell-sub">{item.coordinateRaw || '-'}</span>
-                        )}
-                      </td>
-                      <td className="details-cell">
-                        <div className="details-clamp" title={item.details}>
-                          {item.details}
-                        </div>
-                      </td>
-                      <td>{item.reporter || '-'}</td>
-                      <td className="nowrap" onClick={(e) => e.stopPropagation()}>
-                        <span
-                          className={`badge ${
-                            item.syncStatus === 'synced'
-                              ? 'badge-success'
-                              : item.syncStatus === 'failed'
-                                ? 'badge-danger'
-                                : 'badge-warn'
-                          }`}
-                        >
-                          {SYNC_STATUS_LABEL[item.syncStatus]}
-                        </span>
-                        {item.syncError && (
-                          <div className="cell-error" title={item.syncError}>
-                            {item.syncError}
-                          </div>
-                        )}
-                        {item.syncStatus !== 'synced' && (
-                          <div style={{ marginTop: 4 }}>
-                            <button
-                              type="button"
-                              className="btn-xs btn-outline"
-                              onClick={() => void onRetrySyncOne(item)}
-                              disabled={!settings.gasWebhookUrl}
-                            >
-                              <RefreshCw size={12} aria-hidden="true" /> ส่งซ้ำ
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                      <td className="nowrap" onClick={(e) => e.stopPropagation()}>
-                        <div className="row-actions">
-                          {item.lat !== null && item.lng !== null && (
-                            <button
-                              type="button"
-                              className="btn-xs btn-outline"
-                              onClick={() => {
-                                setSelectedId(item.id);
-                                setShowMap(true);
-                              }}
-                              title="เปิดแผนที่และโฟกัสพิกัดรายการนี้"
-                            >
-                              <MapPin size={12} aria-hidden="true" /> พิกัด
-                            </button>
+                          <input
+                            type="checkbox"
+                            aria-label={`เลือกรายการ ${item.id}`}
+                            checked={selectedIds.has(item.id)}
+                            onChange={() => toggleSelectOne(item.id)}
+                          />
+                        </td>
+                        <td className="nowrap">
+                          <div className="cell-primary">{formatThaiDateTime(item.occurredAt)}</div>
+                          <div className="cell-sub">{item.id}</div>
+                          {item.sourceSheet === 'legacy' && (
+                            <span className="badge badge-info" style={{ marginTop: 3 }}>
+                              ชีต1 เดิม
+                            </span>
                           )}
-                          <button
-                            type="button"
-                            className="btn-xs btn-outline"
-                            onClick={() => void handleCopy(item, 'line')}
-                            title="คัดลอกรูปแบบส่ง LINE"
-                          >
-                            <ClipboardCopy size={12} aria-hidden="true" />{' '}
-                            {copiedId === `${item.id}-line` ? 'คัดลอกแล้ว' : 'LINE'}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-xs btn-outline"
-                            onClick={() => void handleCopy(item, 'paper')}
-                            title="คัดลอกรูปแบบ Paper (เลขไทย)"
-                          >
-                            <ClipboardCopy size={12} aria-hidden="true" />{' '}
-                            {copiedId === `${item.id}-paper` ? 'คัดลอกแล้ว' : 'Paper'}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-xs btn-outline"
-                            onClick={() => onEditIncident(item)}
-                            title="แก้ไขรายการนี้"
-                          >
-                            <Edit3 size={12} aria-hidden="true" /> แก้ไข
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-xs btn-outline-danger"
-                            onClick={() => {
-                              if (window.confirm(`ต้องการลบรายการ ${item.id} ใช่หรือไม่?`)) {
-                                void onDeleteIncident(item.id);
+                        </td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          {onQuickUpdateIncident ? (
+                            <select
+                              aria-label={`ประเภทเหตุการณ์ ${item.id}`}
+                              className="inline-cat-select"
+                              style={{ borderLeftColor: catColor, color: catColor }}
+                              value={item.category}
+                              disabled={isUpdating}
+                              onChange={(e) =>
+                                void handleInlineCategoryChange(item, e.target.value)
                               }
-                            }}
-                            title="ลบรายการนี้"
+                            >
+                              {catOptions.map((cat) => (
+                                <option key={cat} value={cat}>
+                                  {cat}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span
+                              className="cat-pill"
+                              style={{
+                                borderColor: catColor,
+                                color: catColor,
+                              }}
+                            >
+                              {item.category}
+                            </span>
+                          )}
+                          {isUpdating && (
+                            <div className="cell-sub" style={{ color: 'var(--info)' }}>
+                              กำลังบันทึกและซิงก์...
+                            </div>
+                          )}
+                          {item.eventCount && item.eventCount > 1 && (
+                            <span className="badge badge-warn" style={{ marginLeft: 4 }}>
+                              ×{item.eventCount} เหตุการณ์
+                            </span>
+                          )}
+                          <div className="cell-area">{area || 'ไม่ระบุพื้นที่'}</div>
+                          {!item.inTargetArea && (
+                            <span className="badge badge-warn">นอกเขต 3 จว.+4 อ.</span>
+                          )}
+                        </td>
+                        <td className="nowrap">
+                          {item.lat !== null && item.lng !== null ? (
+                            <>
+                              <div className="cell-primary">
+                                {item.lat.toFixed(5)}, {item.lng.toFixed(5)}
+                              </div>
+                              <div className="cell-sub">{item.mgrs}</div>
+                            </>
+                          ) : (
+                            <span className="cell-sub">{item.coordinateRaw || '-'}</span>
+                          )}
+                        </td>
+                        <td className="details-cell">
+                          <div className="details-clamp" title={item.details}>
+                            {item.details}
+                          </div>
+                        </td>
+                        <td>{item.reporter || '-'}</td>
+                        <td className="nowrap" onClick={(e) => e.stopPropagation()}>
+                          <span
+                            className={`badge ${
+                              item.syncStatus === 'synced'
+                                ? 'badge-success'
+                                : item.syncStatus === 'failed'
+                                  ? 'badge-danger'
+                                  : 'badge-warn'
+                            }`}
                           >
-                            <Trash2 size={12} aria-hidden="true" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                            {SYNC_STATUS_LABEL[item.syncStatus]}
+                          </span>
+                          {item.syncError && (
+                            <div className="cell-error" title={item.syncError}>
+                              {item.syncError}
+                            </div>
+                          )}
+                          {item.syncStatus !== 'synced' && (
+                            <div style={{ marginTop: 4 }}>
+                              <button
+                                type="button"
+                                className="btn-xs btn-outline"
+                                onClick={() => void onRetrySyncOne(item)}
+                                disabled={!settings.gasWebhookUrl}
+                              >
+                                <RefreshCw size={12} aria-hidden="true" /> ส่งซ้ำ
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                        <td className="nowrap" onClick={(e) => e.stopPropagation()}>
+                          <div className="row-actions">
+                            {onQuickUpdateIncident && (
+                              <button
+                                type="button"
+                                className={`btn-xs ${isQuickEditing ? 'btn-primary' : 'btn-outline'}`}
+                                onClick={() => handleToggleQuickEdit(item)}
+                                title="แก้ประเภท พื้นที่ หรือรายละเอียดในแถวนี้ทันที"
+                              >
+                                <Edit3 size={12} aria-hidden="true" /> แก้ด่วน
+                              </button>
+                            )}
+                            {item.lat !== null && item.lng !== null && (
+                              <button
+                                type="button"
+                                className="btn-xs btn-outline"
+                                onClick={() => {
+                                  setSelectedId(item.id);
+                                  setShowMap(true);
+                                }}
+                                title="เปิดแผนที่และโฟกัสพิกัดรายการนี้"
+                              >
+                                <MapPin size={12} aria-hidden="true" /> พิกัด
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="btn-xs btn-outline"
+                              onClick={() => void handleCopy(item, 'line')}
+                              title="คัดลอกรูปแบบส่ง LINE"
+                            >
+                              <ClipboardCopy size={12} aria-hidden="true" />{' '}
+                              {copiedId === `${item.id}-line` ? 'คัดลอกแล้ว' : 'LINE'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-xs btn-outline"
+                              onClick={() => void handleCopy(item, 'paper')}
+                              title="คัดลอกรูปแบบ Paper (เลขไทย)"
+                            >
+                              <ClipboardCopy size={12} aria-hidden="true" />{' '}
+                              {copiedId === `${item.id}-paper` ? 'คัดลอกแล้ว' : 'Paper'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-xs btn-outline"
+                              onClick={() => onEditIncident(item)}
+                              title="แก้ไขเต็มฟอร์มและปักหมุดแผนที่"
+                            >
+                              <Edit3 size={12} aria-hidden="true" /> แก้ไข
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-xs btn-outline-danger"
+                              onClick={() => {
+                                if (window.confirm(`ต้องการลบรายการ ${item.id} ใช่หรือไม่?`)) {
+                                  void onDeleteIncident(item.id);
+                                }
+                              }}
+                              title="ลบรายการนี้"
+                            >
+                              <Trash2 size={12} aria-hidden="true" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {isQuickEditing && quickDraft && (
+                        <tr className="quick-edit-row" onClick={(e) => e.stopPropagation()}>
+                          <td colSpan={8}>
+                            <div className="quick-edit-box">
+                              <div className="quick-edit-grid">
+                                <div>
+                                  <label className="sub-label">ประเภทเหตุการณ์</label>
+                                  <select
+                                    className="form-select"
+                                    value={quickDraft.category}
+                                    onChange={(e) =>
+                                      setQuickDraft({ ...quickDraft, category: e.target.value })
+                                    }
+                                  >
+                                    {(settings.categories.includes(quickDraft.category)
+                                      ? settings.categories
+                                      : [quickDraft.category, ...settings.categories]
+                                    ).map((c) => (
+                                      <option key={c} value={c}>
+                                        {c}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="sub-label">จำนวนเหตุการณ์</label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={99}
+                                    className="form-input"
+                                    value={quickDraft.eventCount}
+                                    onChange={(e) =>
+                                      setQuickDraft({
+                                        ...quickDraft,
+                                        eventCount: Math.max(1, Number(e.target.value) || 1),
+                                      })
+                                    }
+                                  />
+                                </div>
+                                <div>
+                                  <label className="sub-label">จังหวัด</label>
+                                  <select
+                                    className="form-select"
+                                    value={
+                                      provinces.includes(quickDraft.province)
+                                        ? quickDraft.province
+                                        : ''
+                                    }
+                                    onChange={(e) =>
+                                      setQuickDraft({
+                                        ...quickDraft,
+                                        province: e.target.value,
+                                        district: '',
+                                        subdistrict: '',
+                                      })
+                                    }
+                                  >
+                                    <option value="">-- จังหวัด --</option>
+                                    {provinces.map((p) => (
+                                      <option key={p} value={p}>
+                                        {p === 'สงขลา' ? 'สงขลา (4 อำเภอ)' : p}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="sub-label">อำเภอ</label>
+                                  {getDistrictsByProvince(quickDraft.province).length > 0 ? (
+                                    <select
+                                      className="form-select"
+                                      value={quickDraft.district}
+                                      onChange={(e) =>
+                                        setQuickDraft({
+                                          ...quickDraft,
+                                          district: e.target.value,
+                                          subdistrict: '',
+                                        })
+                                      }
+                                    >
+                                      <option value="">-- อำเภอ --</option>
+                                      {getDistrictsByProvince(quickDraft.province).map((d) => (
+                                        <option key={d} value={d}>
+                                          {d}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      className="form-input"
+                                      value={quickDraft.district}
+                                      onChange={(e) =>
+                                        setQuickDraft({ ...quickDraft, district: e.target.value })
+                                      }
+                                    />
+                                  )}
+                                </div>
+                                <div>
+                                  <label className="sub-label">ตำบล</label>
+                                  {getSubdistrictsByDistrict(quickDraft.province, quickDraft.district)
+                                    .length > 0 ? (
+                                    <select
+                                      className="form-select"
+                                      value={quickDraft.subdistrict}
+                                      onChange={(e) =>
+                                        setQuickDraft({
+                                          ...quickDraft,
+                                          subdistrict: e.target.value,
+                                        })
+                                      }
+                                    >
+                                      <option value="">-- ตำบล --</option>
+                                      {getSubdistrictsByDistrict(
+                                        quickDraft.province,
+                                        quickDraft.district
+                                      ).map((s) => (
+                                        <option key={s} value={s}>
+                                          {s}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      className="form-input"
+                                      value={quickDraft.subdistrict}
+                                      onChange={(e) =>
+                                        setQuickDraft({
+                                          ...quickDraft,
+                                          subdistrict: e.target.value,
+                                        })
+                                      }
+                                    />
+                                  )}
+                                </div>
+                              </div>
+
+                              <div style={{ marginTop: '0.55rem' }}>
+                                <label className="sub-label">รายละเอียดเหตุการณ์</label>
+                                <textarea
+                                  className="form-textarea"
+                                  rows={3}
+                                  value={quickDraft.details}
+                                  onChange={(e) =>
+                                    setQuickDraft({ ...quickDraft, details: e.target.value })
+                                  }
+                                />
+                              </div>
+
+                              <div className="form-actions" style={{ marginTop: '0.6rem' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-primary"
+                                  disabled={quickSaving || !quickDraft.details.trim()}
+                                  onClick={() => void handleSaveQuickEdit(item)}
+                                >
+                                  <Check size={14} aria-hidden="true" />
+                                  <span>
+                                    {quickSaving
+                                      ? 'กำลังบันทึกและซิงก์...'
+                                      : 'บันทึกและซิงก์ทับแถวเดิม'}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-outline"
+                                  disabled={quickSaving}
+                                  onClick={() => {
+                                    setQuickEditId(null);
+                                    setQuickDraft(null);
+                                  }}
+                                >
+                                  ยกเลิก
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>

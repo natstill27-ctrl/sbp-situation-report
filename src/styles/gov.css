@@ -2173,3 +2173,70 @@ html.high-contrast .batch-item-card.active {
     color: #0f172a !important;
   }
 }
+
+/* Inline Category Dropdown, Bulk Action Bar & Quick-Edit Drawer */
+.inline-cat-select {
+  max-width: 210px;
+  width: 100%;
+  padding: 0.22rem 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  border-left-width: 4px;
+  background: var(--bg-card);
+  cursor: pointer;
+}
+
+.inline-cat-select:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.85rem;
+  border-radius: 8px;
+  background: var(--info-bg);
+  border: 1px solid var(--info);
+}
+
+.bulk-cat-select {
+  width: auto;
+  min-width: 210px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.86rem;
+}
+
+.quick-edit-row td {
+  padding: 0 !important;
+  background: var(--bg-subtle);
+}
+
+.quick-edit-box {
+  padding: 0.85rem 1rem;
+  border-top: 2px solid var(--gov-navy-800);
+  border-bottom: 2px solid var(--gov-navy-800);
+  background: var(--bg-subtle);
+}
+
+.quick-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+}
+
+html.high-contrast .inline-cat-select {
+  background: #000000;
+  border-color: #ffffff;
+}
+
+html.high-contrast .bulk-action-bar,
+html.high-contrast .quick-edit-box {
+  background: #111111;
+  border-color: #ffff00;
+}

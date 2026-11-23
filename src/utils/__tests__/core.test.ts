@@ -16,6 +16,7 @@ import {
   classifyIncidentSeverity,
 } from '../severity';
 import {
+  classifyCategoryFromText,
   extractMultiAreaPaper,
   extractPaperMetadata,
   formatThaiDateTime,
@@ -503,5 +504,66 @@ describe('IPB Severity Classification & C2 Aggregations', () => {
     expect(pattani?.counts.low).toBe(1);
     expect(pattani?.pcts.critical).toBe(75);
     expect(pattani?.pcts.low).toBe(25);
+  });
+});
+
+describe('Refined Category Classifier & Legacy Prefix Stripping', () => {
+  it('avoids false positives on routine searches, weapon seizures, and EOD negative checks', () => {
+    expect(
+      classifyCategoryFromText(
+        'เจ้าหน้าที่ตรวจค้นบ้านเป้าหมายและตรวจยึดอาวุธปืนและกระสุนปืนพร้อมวัตถุระเบิด',
+        DEFAULT_CATEGORIES
+      )
+    ).toBe('ตรวจยึด/จับกุม');
+
+    expect(
+      classifyCategoryFromText(
+        'ชุดเก็บกู้วัตถุระเบิดเข้าตรวจสอบพื้นที่ ไม่พบวัตถุระเบิด พบเพียงป้ายผ้าก่อกวน',
+        DEFAULT_CATEGORIES
+      )
+    ).toBe('ก่อกวน/โปรยตะปูเรือใบ-เผายาง');
+  });
+
+  it('strips stacked [category] prefixes on legacy pull and updates cleanly without duplicating', () => {
+    const pulled = parsePulledGasResponse(
+      {
+        ok: true,
+        ipbRows: [],
+        legacyRows: [
+          {
+            rowNumber: 22,
+            date: '2025-05-01',
+            incident_type: DEFAULT_SETTINGS.legacyIncidentType,
+            location: '[ระเบิด] ต.สะบารัง อ.เมืองปัตตานี จว.ปัตตานี — เจ้าหน้าที่ตรวจยึดวัตถุระเบิดได้ 1 รายการ',
+            gps: '6.8675,101.2498',
+            reporter_name: 'ร.ต.ทดสอบ',
+          },
+        ],
+      },
+      DEFAULT_SETTINGS
+    );
+
+    const legacyItem = pulled.records[0];
+    expect(legacyItem.details).toBe('เจ้าหน้าที่ตรวจยึดวัตถุระเบิดได้ 1 รายการ');
+
+    const reclassified = {
+      ...legacyItem,
+      category: 'ตรวจยึด/จับกุม',
+    };
+    const nextLoc = buildLegacyLocationText(reclassified);
+    expect(nextLoc).toContain('[ตรวจยึด/จับกุม]');
+    expect(nextLoc).not.toContain('[ระเบิด]');
+    expect((nextLoc.match(/—/g) || []).length).toBe(1);
+
+    // Also strip double-stacked prefixes if passed directly
+    const alreadyPrefixed = {
+      ...legacyItem,
+      category: 'ตรวจยึด/จับกุม',
+      details: '[ปะทะ] จว.ปัตตานี — [ระเบิด] อ.เมืองปัตตานี — เจ้าหน้าที่ตรวจยึดของกลาง',
+    };
+    const cleanedLoc = buildLegacyLocationText(alreadyPrefixed);
+    expect(cleanedLoc).toBe(
+      '[ตรวจยึด/จับกุม] ต.สะบารัง อ.เมืองปัตตานี จว.ปัตตานี — เจ้าหน้าที่ตรวจยึดของกลาง'
+    );
   });
 });

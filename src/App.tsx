@@ -205,6 +205,80 @@ export function App() {
     return records;
   };
 
+  const handleQuickUpdateIncident = async (record: IncidentRecord): Promise<IncidentRecord> => {
+    let updated: IncidentRecord = {
+      ...record,
+      updatedAt: new Date().toISOString(),
+      syncStatus: 'pending',
+    };
+    await saveIncident(updated);
+    upsertLocalIncident(updated);
+
+    if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
+      const syncRes = await sendIncidentToGas(updated, settings);
+      const returnedRow =
+        syncRes.responseData &&
+        typeof syncRes.responseData === 'object' &&
+        'legacyRowNumber' in syncRes.responseData
+          ? Number((syncRes.responseData as Record<string, unknown>).legacyRowNumber)
+          : undefined;
+      updated = {
+        ...updated,
+        syncStatus: syncRes.ok ? 'synced' : 'failed',
+        lastSyncAttempt: new Date().toISOString(),
+        syncError: syncRes.ok ? undefined : syncRes.message,
+        legacyRowNumber:
+          returnedRow && Number.isFinite(returnedRow)
+            ? returnedRow
+            : updated.legacyRowNumber,
+      };
+      await saveIncident(updated);
+      upsertLocalIncident(updated);
+    }
+
+    return updated;
+  };
+
+  const handleQuickUpdateBatch = async (records: IncidentRecord[]): Promise<IncidentRecord[]> => {
+    if (records.length === 0) return [];
+    const nowIso = new Date().toISOString();
+    const stamped: IncidentRecord[] = records.map((rec) => ({
+      ...rec,
+      updatedAt: nowIso,
+      syncStatus: 'pending',
+    }));
+    await saveIncidentsBatch(stamped);
+    setIncidents(await loadIncidents());
+
+    if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
+      const updatedRecords: IncidentRecord[] = [];
+      for (const rec of stamped) {
+        const syncRes = await sendIncidentToGas(rec, settings);
+        const returnedRow =
+          syncRes.responseData &&
+          typeof syncRes.responseData === 'object' &&
+          'legacyRowNumber' in syncRes.responseData
+            ? Number((syncRes.responseData as Record<string, unknown>).legacyRowNumber)
+            : undefined;
+        updatedRecords.push({
+          ...rec,
+          syncStatus: syncRes.ok ? 'synced' : 'failed',
+          lastSyncAttempt: new Date().toISOString(),
+          syncError: syncRes.ok ? undefined : syncRes.message,
+          legacyRowNumber:
+            returnedRow && Number.isFinite(returnedRow)
+              ? returnedRow
+              : rec.legacyRowNumber,
+        });
+      }
+      await saveIncidentsBatch(updatedRecords);
+      setIncidents(await loadIncidents());
+      return updatedRecords;
+    }
+
+    return stamped;
+  };
+
   const handleRetrySyncOne = async (record: IncidentRecord) => {
     const syncRes = await sendIncidentToGas(record, settings);
     const updated: IncidentRecord = {
@@ -345,6 +419,8 @@ export function App() {
                   onLoadSamples={handleLoadSamples}
                   onClearAll={handleClearAll}
                   onPullFromGas={() => handlePullFromGas()}
+                  onQuickUpdateIncident={handleQuickUpdateIncident}
+                  onQuickUpdateBatch={handleQuickUpdateBatch}
                 />
               )}
 

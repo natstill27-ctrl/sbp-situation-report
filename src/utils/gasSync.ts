@@ -28,6 +28,10 @@ interface RawLegacyRow {
   createdAt?: string;
 }
 
+function stripLegacyBracketPrefix(text: string): string {
+  return text.replace(/^(?:\[[^\]]+\][^—\n]*—\s*)+/, '').trim();
+}
+
 /**
  * Format compact legacy 10-column Sheet Column C ("สถานที่") preserving IPB category + area + details.
  */
@@ -43,7 +47,7 @@ export function buildLegacyLocationText(record: IncidentRecord): string {
   const count = record.eventCount && record.eventCount > 1 ? Math.round(record.eventCount) : 1;
   const countTag = count > 1 ? ` ×${count}` : '';
   const prefix = `[${record.category}${countTag}]${area ? ` ${area}` : ''}`;
-  const details = (record.details || '').trim();
+  const details = stripLegacyBracketPrefix((record.details || '').trim());
   return details ? `${prefix} — ${details}` : prefix;
 }
 
@@ -350,7 +354,7 @@ export function parsePulledGasResponse(
       subdistrict,
       inTargetArea,
       category,
-      details: locationText || targetLegacyType,
+      details: stripLegacyBracketPrefix(locationText) || locationText || targetLegacyType,
       reporter: String(row.reporter_name ?? '').trim() || '-',
       createdAt,
       updatedAt: createdAt,
