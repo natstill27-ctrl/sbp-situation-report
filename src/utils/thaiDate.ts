@@ -1067,6 +1067,50 @@ export function isWatchAlertActive(
 }
 
 /**
+ * Determine whether a watch alert overlaps the recent `days`-day window ending at `anchorYmd`
+ * (defaults to today). If `capFuture` is true, alerts starting after `anchorYmd` are excluded.
+ */
+export function isWatchAlertWithinRecentDays(
+  alert: Pick<WatchAlertRecord, 'watchStart' | 'watchEnd' | 'reportedAt' | 'createdAt'>,
+  days = 30,
+  anchorYmd?: string,
+  capFuture = false
+): boolean {
+  const anchor =
+    anchorYmd && /^\d{4}-\d{2}-\d{2}$/.test(anchorYmd)
+      ? anchorYmd
+      : getCurrentLocalDateTimeInput().slice(0, 10);
+
+  const [ay, am, ad] = anchor.split('-').map(Number);
+  const cutoffDate = new Date(ay, am - 1, ad - Math.max(0, days));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const cutoffYmd = `${cutoffDate.getFullYear()}-${pad(cutoffDate.getMonth() + 1)}-${pad(cutoffDate.getDate())}`;
+
+  const start = (
+    alert.watchStart ||
+    alert.reportedAt ||
+    alert.watchEnd ||
+    alert.createdAt ||
+    ''
+  ).slice(0, 10);
+  const end = (
+    alert.watchEnd ||
+    alert.watchStart ||
+    alert.reportedAt ||
+    alert.createdAt ||
+    ''
+  ).slice(0, 10);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end) || end < cutoffYmd) {
+    return false;
+  }
+  if (capFuture && /^\d{4}-\d{2}-\d{2}$/.test(start) && start > anchor) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Parse Thai intelligence watch advisories containing multi-district target lists,
  * watch date windows (same-month or cross-month), and threat type.
  */

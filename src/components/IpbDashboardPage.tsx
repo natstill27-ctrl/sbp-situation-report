@@ -38,8 +38,10 @@ import {
   THAI_MONTHS_SHORT,
   extractWatchAdvisory,
   formatThaiDateTime,
+  getCurrentLocalDateTimeInput,
   isWatchAdvisoryCategory,
   isWatchAlertActive,
+  isWatchAlertWithinRecentDays,
   toThaiDigits,
 } from '../utils/thaiDate';
 import { LeafletMap } from './LeafletMap';
@@ -83,7 +85,7 @@ export function IpbDashboardPage({
   const [severityFilter, setSeverityFilter] = useState<'' | SeverityLevel>('');
   const [excludeWatchFromStats, setExcludeWatchFromStats] = useState(true);
   const [showWatchZones, setShowWatchZones] = useState(true);
-  const [watchActiveOnly, setWatchActiveOnly] = useState(false);
+  const [watchScope, setWatchScope] = useState<'30d' | 'active' | 'all'>('30d');
   const [c2Theme, setC2Theme] = useState<'dark' | 'light'>('dark');
   const [mapColorMode, setMapColorMode] = useState<'severity' | 'category'>('severity');
   const [useMilSymbol, setUseMilSymbol] = useState(false);
@@ -172,12 +174,21 @@ export function IpbDashboardPage({
   }, [watchAlerts, incidents]);
 
   const displayedWatchAlerts = useMemo(() => {
+    const todayYmd = getCurrentLocalDateTimeInput().slice(0, 10);
+    const isHistoricalAnchor = Boolean(dateTo && dateTo < todayYmd);
+    const anchorYmd = isHistoricalAnchor ? dateTo : todayYmd;
+
     return combinedWatchAlerts.filter((w) => {
-      if (watchActiveOnly && isWatchAlertActive(w) !== 'active') return false;
+      if (watchScope === '30d' && !isWatchAlertWithinRecentDays(w, 30, anchorYmd, isHistoricalAnchor)) {
+        return false;
+      }
+      if (watchScope === 'active' && isWatchAlertActive(w, todayYmd) !== 'active') {
+        return false;
+      }
       if (provinceFilter && !w.areas.some((a) => a.province === provinceFilter)) return false;
       return true;
     });
-  }, [combinedWatchAlerts, watchActiveOnly, provinceFilter]);
+  }, [combinedWatchAlerts, watchScope, provinceFilter, dateTo]);
 
   const activeWatchAlerts = useMemo(
     () => combinedWatchAlerts.filter((w) => isWatchAlertActive(w) === 'active'),
@@ -911,13 +922,16 @@ export function IpbDashboardPage({
                     <span>เขตเฝ้าระวัง ({displayedWatchAlerts.length})</span>
                   </label>
                   {showWatchZones && combinedWatchAlerts.length > 0 && (
-                    <button
-                      type="button"
+                    <select
                       className="c2-xs-btn"
-                      onClick={() => setWatchActiveOnly((v) => !v)}
+                      aria-label="ขอบเขตเวลาพื้นที่เฝ้าระวัง"
+                      value={watchScope}
+                      onChange={(e) => setWatchScope(e.target.value as '30d' | 'active' | 'all')}
                     >
-                      {watchActiveOnly ? 'เฉพาะกำลังเฝ้าระวัง' : 'เฝ้าระวังทั้งหมด'}
-                    </button>
+                      <option value="30d">30 วันล่าสุด</option>
+                      <option value="active">เฉพาะในห้วง</option>
+                      <option value="all">ทั้งหมด ({combinedWatchAlerts.length})</option>
+                    </select>
                   )}
                   <button
                     type="button"

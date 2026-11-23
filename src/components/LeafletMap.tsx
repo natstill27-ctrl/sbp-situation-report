@@ -6,7 +6,7 @@ import { getCategoryColor } from '../utils/categoryColors';
 import { getMilSymbolIconOptions } from '../utils/milSymbols';
 import { createPmtilesRasterLayer } from '../utils/pmtilesLayer';
 import { classifyIncidentSeverity } from '../utils/severity';
-import { formatThaiDateTime } from '../utils/thaiDate';
+import { formatThaiDateTime, isWatchAlertActive } from '../utils/thaiDate';
 import { getDistrictBoundariesGeoJson, getWatchZonePolygonsGeoJson } from '../utils/geoLookup';
 
 export type BasemapType = 'osm' | 'satellite' | 'topo';
@@ -344,15 +344,33 @@ export function LeafletMap(props: LeafletMapProps) {
       const geo = getWatchZonePolygonsGeoJson(alert.areas);
       if (geo.features.length === 0) continue;
       const strokeColor = WATCH_COLORS[alert.alertLevel] || '#f97316';
+      const status = isWatchAlertActive(alert);
+      const isExpired = status === 'expired';
+      const statusLabel =
+        status === 'active'
+          ? 'กำลังเฝ้าระวัง'
+          : status === 'upcoming'
+            ? 'รอเริ่มห้วง'
+            : 'พ้นห้วงแล้ว (แสดงย้อนหลัง 30 วัน)';
+
       const polyLayer = L.geoJSON(geo as GeoJSON.GeoJsonObject, {
-        style: {
-          color: strokeColor,
-          weight: 2,
-          dashArray: '6 4',
-          opacity: 0.9,
-          fillColor: strokeColor,
-          fillOpacity: 0.2,
-        },
+        style: isExpired
+          ? {
+              color: strokeColor,
+              weight: 1.5,
+              dashArray: '3 6',
+              opacity: 0.55,
+              fillColor: strokeColor,
+              fillOpacity: 0.09,
+            }
+          : {
+              color: strokeColor,
+              weight: 2,
+              dashArray: '6 4',
+              opacity: 0.9,
+              fillColor: strokeColor,
+              fillOpacity: 0.2,
+            },
       });
       const areaNames = alert.areas
         .map((a) => `${a.district ? `อ.${a.district}` : ''} ${a.province ? `จว.${a.province}` : ''}`.trim())
@@ -365,6 +383,7 @@ export function LeafletMap(props: LeafletMapProps) {
       const popupHtml = `
         <div style="font-family:'Sarabun','Noto Sans Thai',sans-serif;min-width:220px;max-width:295px;line-height:1.45;">
           <div style="font-weight:800;color:${strokeColor};margin-bottom:4px;">พื้นที่เฝ้าระวัง: ${escapeHtml(alert.threatType)}</div>
+          <div style="font-size:12px;color:#334155;"><strong>สถานะ:</strong> ${escapeHtml(statusLabel)}</div>
           <div style="font-size:12px;color:#334155;"><strong>ห้วงเฝ้าระวัง:</strong> ${escapeHtml(windowText)}</div>
           <div style="font-size:12px;color:#334155;margin-bottom:4px;"><strong>เขตเฝ้าระวัง (${alert.areas.length} พื้นที่):</strong> ${escapeHtml(areaNames)}</div>
           <div style="font-size:12px;color:#0f172a;background:#fff7ed;padding:6px;border-radius:4px;border:1px solid #fed7aa;max-height:95px;overflow:auto;">

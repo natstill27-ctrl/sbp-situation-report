@@ -30,6 +30,7 @@ import {
   extractWatchAdvisory,
   formatThaiDateTime,
   fromThaiDigits,
+  isWatchAlertWithinRecentDays,
   toThaiDigits,
 } from '../thaiDate';
 
@@ -940,5 +941,75 @@ describe('Hierarchical Multi-Province Report, Area Precision & Aggregate Pull Gu
     expect(pattaniCenter).not.toBeNull();
     expect(pattaniCenter!.lat).toBeGreaterThan(6);
     expect(pattaniCenter!.lng).toBeGreaterThan(100);
+  });
+
+  it('filters watch alerts accurately within the last 30 days window', () => {
+    const anchor = '2025-05-30';
+
+    expect(
+      isWatchAlertWithinRecentDays(
+        { watchStart: '2025-04-10', watchEnd: '2025-04-20', reportedAt: '2025-04-10', createdAt: '' },
+        30,
+        anchor
+      )
+    ).toBe(false);
+
+    expect(
+      isWatchAlertWithinRecentDays(
+        { watchStart: '2025-04-25', watchEnd: '2025-04-29', reportedAt: '2025-04-25', createdAt: '' },
+        30,
+        anchor
+      )
+    ).toBe(false);
+
+    expect(
+      isWatchAlertWithinRecentDays(
+        { watchStart: '2025-04-25', watchEnd: '2025-04-30', reportedAt: '2025-04-25', createdAt: '' },
+        30,
+        anchor
+      )
+    ).toBe(true);
+
+    expect(
+      isWatchAlertWithinRecentDays(
+        { watchStart: '2025-05-15', watchEnd: '2025-05-20', reportedAt: '2025-05-15', createdAt: '' },
+        30,
+        anchor
+      )
+    ).toBe(true);
+
+    expect(
+      isWatchAlertWithinRecentDays(
+        { watchStart: '2025-04-15', watchEnd: '2025-05-31', reportedAt: '2025-04-15', createdAt: '' },
+        30,
+        anchor,
+        true
+      )
+    ).toBe(true);
+
+    expect(
+      isWatchAlertWithinRecentDays(
+        { watchStart: '2025-06-05', watchEnd: '2025-06-10', reportedAt: '2025-06-01', createdAt: '' },
+        30,
+        anchor,
+        false
+      )
+    ).toBe(true);
+    expect(
+      isWatchAlertWithinRecentDays(
+        { watchStart: '2025-06-05', watchEnd: '2025-06-10', reportedAt: '2025-06-01', createdAt: '' },
+        30,
+        anchor,
+        true
+      )
+    ).toBe(false);
+
+    expect(
+      isWatchAlertWithinRecentDays(
+        { watchStart: '', watchEnd: '', reportedAt: '', createdAt: '' },
+        30,
+        anchor
+      )
+    ).toBe(false);
   });
 });
