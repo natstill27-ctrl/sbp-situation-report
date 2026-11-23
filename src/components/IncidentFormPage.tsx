@@ -231,14 +231,24 @@ export function IncidentFormPage({
     () =>
       batchItems
         .filter((item) => item.lat !== null && item.lng !== null)
-        .map((item, idx) => ({
-          id: item.id,
-          lat: item.lat as number,
-          lng: item.lng as number,
-          label: `#${idx + 1} ${item.district ? `อ.${item.district}` : item.province || 'จุดย่อย'} • ${item.category} (${item.eventCount} เหตุการณ์)`,
-          eventCount: item.eventCount,
-          active: item.id === activeBatchItem?.id,
-        })),
+        .map((item, idx) => {
+          const areaLabel =
+            [
+              item.subdistrict ? `ต.${item.subdistrict}` : '',
+              item.district ? `อ.${item.district}` : '',
+              item.province ? `จว.${item.province}` : '',
+            ]
+              .filter(Boolean)
+              .join(' ') || 'จุดย่อย';
+          return {
+            id: item.id,
+            lat: item.lat as number,
+            lng: item.lng as number,
+            label: `#${idx + 1} ${areaLabel} • ${item.category} (${item.eventCount} เหตุการณ์)`,
+            eventCount: item.eventCount,
+            active: item.id === activeBatchItem?.id,
+          };
+        }),
     [batchItems, activeBatchItem]
   );
 
@@ -246,6 +256,18 @@ export function IncidentFormPage({
     () => batchItems.reduce((sum, item) => sum + (item.eventCount > 0 ? item.eventCount : 1), 0),
     [batchItems]
   );
+
+  const batchProvinceBreakdown = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of batchItems) {
+      if (!item.province) continue;
+      counts.set(
+        item.province,
+        (counts.get(item.province) || 0) + (item.eventCount > 0 ? item.eventCount : 1)
+      );
+    }
+    return counts.size >= 2 ? Array.from(counts.entries()) : [];
+  }, [batchItems]);
 
   const handlePickOnMap = (lat: number, lng: number) => {
     if (entryMode === 'batch' && activeBatchItem) {
@@ -303,7 +325,9 @@ export function IncidentFormPage({
 
   const handleJumpToSelectedArea = () => {
     if (!province) return;
-    const center = getCenterOfArea(province, district || undefined, subdistrict || undefined);
+    const center =
+      getCenterOfArea(province, district || undefined, subdistrict || undefined) ||
+      getCenterOfArea(province);
     if (center) {
       const coord = buildParsedCoordinate(center.lat, center.lng, 'map-pick', `${center.lat}, ${center.lng}`);
       setCoordinateRaw(`${center.lat}, ${center.lng}`);
@@ -347,14 +371,25 @@ export function IncidentFormPage({
         setDistrict(areaMatch.district);
         setSubdistrict(areaMatch.subdistrict);
         setInTargetArea(true);
-        hints.push(`พื้นที่ (ต.${areaMatch.subdistrict} อ.${areaMatch.district} จว.${areaMatch.province})`);
+        const areaLabel = [
+          areaMatch.subdistrict ? `ต.${areaMatch.subdistrict}` : '',
+          areaMatch.district ? `อ.${areaMatch.district}` : '',
+          `จว.${areaMatch.province}`,
+        ]
+          .filter(Boolean)
+          .join(' ');
+        hints.push(`พื้นที่ (${areaLabel})`);
         if (!coordInText) {
-          const center = getCenterOfArea(areaMatch.province, areaMatch.district, areaMatch.subdistrict);
+          const center = getCenterOfArea(
+            areaMatch.province,
+            areaMatch.district || undefined,
+            areaMatch.subdistrict || undefined
+          );
           if (center) {
             const c = buildParsedCoordinate(center.lat, center.lng, 'map-pick', `${center.lat}, ${center.lng}`);
             setParsedCoord(c);
             setCoordinateRaw(`${center.lat}, ${center.lng}`);
-            setAreaAutoNote('ปักหมุดอ้างอิงกึ่งกลางตำบลจากข้อความ Paper (สามารถกรอกพิกัดจริงหรือลากหมุดทับได้)');
+            setAreaAutoNote('ปักหมุดอ้างอิงกึ่งกลางพื้นที่จากข้อความ Paper (สามารถกรอกพิกัดจริงหรือลากหมุดทับได้)');
           }
         }
       } else {
@@ -391,7 +426,11 @@ export function IncidentFormPage({
     const areaMatch = matchAreaByThaiNames(single.province, single.district, single.subdistrict);
     const coord = parseCoordinateInput(rawSource);
     const center = !coord && areaMatch
-      ? getCenterOfArea(areaMatch.province, areaMatch.district, areaMatch.subdistrict)
+      ? getCenterOfArea(
+          areaMatch.province,
+          areaMatch.district || undefined,
+          areaMatch.subdistrict || undefined
+        )
       : null;
     const item: MultiAreaDraftItem = {
       id: `draft-${Date.now()}`,
@@ -446,16 +485,24 @@ export function IncidentFormPage({
 
   const handleJumpBatchItemCenter = (item: MultiAreaDraftItem) => {
     if (!item.province) return;
-    const center = getCenterOfArea(
-      item.province,
-      item.district || undefined,
-      item.subdistrict || undefined
-    );
+    const validDistricts = getDistrictsByProvince(item.province);
+    const validDist = item.district && validDistricts.includes(item.district) ? item.district : '';
+    const validSub =
+      validDist &&
+      item.subdistrict &&
+      getSubdistrictsByDistrict(item.province, validDist).includes(item.subdistrict)
+        ? item.subdistrict
+        : '';
+    const center =
+      getCenterOfArea(item.province, validDist || undefined, validSub || undefined) ||
+      getCenterOfArea(item.province);
     if (center) {
       handleUpdateBatchItem(item.id, {
         lat: center.lat,
         lng: center.lng,
         coordMatched: false,
+        ...(item.district && !validDist ? { district: '', subdistrict: '' } : {}),
+        ...(validDist && item.subdistrict && !validSub ? { subdistrict: '' } : {}),
       });
       setActiveItemId(item.id);
     }
@@ -1352,6 +1399,15 @@ export function IncidentFormPage({
                           : `หัวข้อระบุ ${batchReportedTotal}`}
                       </span>
                     )}
+                    {batchProvinceBreakdown.length > 0 && (
+                      <span style={{ display: 'inline-flex', gap: '0.35rem', flexWrap: 'wrap', marginLeft: 8 }}>
+                        {batchProvinceBreakdown.map(([prov, count]) => (
+                          <span key={prov} className="badge badge-info">
+                            จว.{prov} {count}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </div>
                   <label className="checkbox-inline" style={{ fontSize: '0.84rem' }}>
                     <input
@@ -1382,11 +1438,13 @@ export function IncidentFormPage({
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
                             <strong>#{idx + 1}</strong>
                             <span className="badge badge-info">
-                              {item.district
-                                ? `อ.${item.district}${item.province ? ` จว.${item.province}` : ''}`
-                                : item.province
-                                  ? `จว.${item.province}`
-                                  : 'ยังไม่ระบุพื้นที่'}
+                              {[
+                                item.subdistrict ? `ต.${item.subdistrict}` : '',
+                                item.district ? `อ.${item.district}` : '',
+                                item.province ? `จว.${item.province}` : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ') || 'ยังไม่ระบุพื้นที่'}
                             </span>
                             <span
                               className={`badge ${
@@ -1400,7 +1458,11 @@ export function IncidentFormPage({
                               {item.coordMatched
                                 ? 'พิกัดเฉพาะจุด'
                                 : item.lat !== null
-                                  ? 'กึ่งกลางอำเภอ'
+                                  ? item.subdistrict
+                                    ? 'กึ่งกลางตำบล'
+                                    : item.district
+                                      ? 'กึ่งกลางอำเภอ'
+                                      : 'กึ่งกลางจังหวัด'
                                   : 'รอพิกัด'}
                             </span>
                           </div>
@@ -1519,7 +1581,7 @@ export function IncidentFormPage({
                               <select
                                 id={`dist-${item.id}`}
                                 className="form-select"
-                                value={item.district}
+                                value={itemDistricts.includes(item.district) ? item.district : ''}
                                 onChange={(e) => {
                                   const nextDist = e.target.value;
                                   const center = item.province

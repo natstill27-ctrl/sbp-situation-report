@@ -2,6 +2,7 @@ import type {
   MultiAreaDraftItem,
   MultiAreaParseResult,
   PaperParseResult,
+  ParsedCoordinate,
   WatchAdvisoryParseResult,
   WatchAlertLevel,
   WatchAlertRecord,
@@ -256,7 +257,7 @@ export function classifyCategoryFromText(
   if (!normalized || availableCategories.length === 0) return undefined;
 
   const cleaned = normalized
-    .replace(/\(ความเสียหายรวม:[^)]*\)/g, '')
+    .replace(/\([^)]*(?:ความเสียหายรวม|ภาพรวมพื้นที่):[^)]*\)/g, '')
     .replace(/(?:ตรวจสอบ|เช็ค|ตรวจเช็ค|ไล่ดู|ดู|เก็บหลักฐานจาก)?ภาพ(?:จาก)?(?:กล้อง)?(?:วงจรปิด|CCTV)/gi, '')
     .replace(/ไม่พบ(?:วัตถุระเบิด|ระเบิด|อาวุธปืน|กระสุนปืน)/g, '')
     .replace(/ชุดเก็บกู้(?:และตรวจสอบ)?วัตถุระเบิด|ชุด\s*EOD\s*เข้าตรวจสอบ/gi, '')
@@ -294,7 +295,7 @@ function splitMultiAreaBlocks(lines: string[]): { headerLines: string[]; rawBloc
   const hasDeepSubNumbering = lines.some((line) => /^\d+(?:\.\d+){2,}[.)]?\s+/.test(line));
   const deepStarter = /^\d+(?:\.\d+){2,}[.)]?\s+/;
   const flatStarter =
-    /^(?:(?:\d+(?:\.\d+)*[.)]?|[-•*])\s*(?=(?:ต\.|ตำบล|อ\.|อำเภอ|จว\.|จ\.|จังหวัด)\s*[ก-๙]+)|(?:ต\.|ตำบล|อ\.|อำเภอ)\s*[ก-๙]+)/;
+    /^(?:(?:\d+(?:\.\d+)*[.)]?|[-•*])\s*(?=(?:ต\.|ตำบล|อ\.|อำเภอ|จว\.|จ\.|จังหวัด)\s*[ก-๙]+)|(?:ต\.|ตำบล|อ\.|อำเภอ)\s*[ก-๙]+|(?:จว\.|จ\.|จังหวัด)\s*[ก-๙]+\s+(?:จำนวน|แยกเป็น|ประกอบด้วย|เกิดเหตุ|ในพื้นที่))/;
 
   const isStarter = (line: string) =>
     hasDeepSubNumbering ? deepStarter.test(line) : flatStarter.test(line);
@@ -317,9 +318,461 @@ function splitMultiAreaBlocks(lines: string[]): { headerLines: string[]; rawBloc
   return { headerLines, rawBlocks };
 }
 
+interface ResolvedArea {
+  province: string;
+  district: string;
+  subdistrict: string;
+  areaMatched: boolean;
+}
+
+interface ParsedCountedClause {
+  label: string;
+  count: number;
+  unit: string;
+  trailingParen?: string;
+  rawClause: string;
+}
+
+const PAREN_TOKEN_RE = /\u0000P(\d+)\u0000/g;
+const EVENT_COUNT_UNIT_RE = /\d+\s*(?:เหตุการณ์|(?:จุด|ครั้ง|เหตุ|ราย|แห่ง)(?![ก-๙]))/;
+const COUNTED_CLAUSE_RE =
+  /(.+?)\s*(?:จำนวน\s*)?(?<!\d)(\d+)\s*(เหตุการณ์|(?:จุด|ครั้ง|เหตุ|ราย|แห่ง)(?![ก-๙]))(?:\s*\u0000P(\d+)\u0000)?/g;
+const NAMED_LEADING_ACTION_RE =
+  /^((?:ลอบ)?วางเพลิง|(?:ลอบ)?วางระเบิด|ลอบเผา|เผาทำลาย|เผา|ยิงก่อกวน|ยิงทำลาย|ลอบยิง|ซุ่มยิง|โจมตี|ทำลาย|ปล้น|ขว้างระเบิด|โปรยตะปูเรือใบ)\s+(?=(?:อบต\.|ทต\.|เทศบาล|ต\.|ตำบล|อ\.|อำเภอ|จว\.|บ\.|บ้าน|ม\.|สถานี|สำนักงาน|โรงเรียน|รร\.|รพ\.|วัด|มัสยิด|เสา|ตู้|ป้อม|จุดตรวจ|ฐาน|ร้าน|อาคาร|ศาลา|กล้อง))/;
+
+function maskTopLevelParens(text: string): { masked: string; parens: string[] } {
+  const parens: string[] = [];
+  let masked = '';
+  let depth = 0;
+  let startIdx = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '(') {
+      if (depth === 0) startIdx = i;
+      depth++;
+    } else if (ch === ')' && depth > 0) {
+      depth--;
+      if (depth === 0 && startIdx >= 0) {
+        const idx = parens.length;
+        parens.push(text.slice(startIdx + 1, i).trim());
+        masked += `\u0000P${idx}\u0000`;
+        startIdx = -1;
+      }
+    } else if (depth === 0) {
+      masked += ch;
+    }
+  }
+
+  if (depth > 0 && startIdx >= 0) {
+    const idx = parens.length;
+    parens.push(text.slice(startIdx + 1).trim());
+    masked += `\u0000P${idx}\u0000`;
+  }
+
+  return { masked, parens };
+}
+
+function restoreMaskedParens(text: string, parens: string[]): string {
+  return text.replace(PAREN_TOKEN_RE, (_m, idxStr) => {
+    const inner = parens[Number(idxStr)];
+    return inner !== undefined ? `(${inner})` : '';
+  });
+}
+
+function parseCountedClauses(text: string): ParsedCountedClause[] {
+  const { masked, parens } = maskTopLevelParens(text);
+  const clauses: ParsedCountedClause[] = [];
+
+  for (const match of masked.matchAll(COUNTED_CLAUSE_RE)) {
+    const cleanLabel = restoreMaskedParens(match[1], parens)
+      .replace(/^[,;:\s\-–—]+/, '')
+      .replace(/^(?:และ|รวมทั้ง)\s*(?=[ก-๙A-Za-z])/, '')
+      .replace(/\s*จำนวน\s*$/, '')
+      .trim();
+
+    if (!cleanLabel || cleanLabel === 'และ' || cleanLabel === 'รวมทั้ง') continue;
+
+    const count = Math.max(1, Number(match[2]));
+    const unit = match[3];
+    const trailingParen = match[4] !== undefined ? parens[Number(match[4])] : undefined;
+    clauses.push({
+      label: cleanLabel,
+      count,
+      unit,
+      trailingParen,
+      rawClause: `${cleanLabel} ${count} ${unit}`,
+    });
+  }
+
+  return clauses;
+}
+
+function splitTopLevelNamedItems(text: string): string[] {
+  const { masked, parens } = maskTopLevelParens(text);
+  return masked
+    .split(
+      /\s*[,;]\s*(?:และ\s*)?|\s+และ(?:\s+|(?=(?:อบต\.|ทต\.|เทศบาล|ต\.|ตำบล|อ\.|อำเภอ|จว\.|บ\.|ม\.|สถานี|สำนักงาน|โรงเรียน|รร\.|รพ\.|วัด|มัสยิด|วาง|ลอบ|เผา|ยิง|ปล้น|ขว้าง|โปรย)))/
+    )
+    .map((seg) => restoreMaskedParens(seg, parens).trim())
+    .filter(Boolean);
+}
+
+function isCounterPrefixMatch(
+  text: string,
+  match: RegExpMatchArray,
+  fullWord: string
+): boolean {
+  if (match[1] !== fullWord || match.index === undefined) return false;
+  const keywordOffset = match[0].indexOf(match[1]);
+  const before = text.slice(0, match.index + Math.max(0, keywordOffset));
+  return /\d\s*$/.test(before);
+}
+
+function extractAreaFromText(
+  text: string,
+  fallback: { province: string; district: string; subdistrict: string }
+): ResolvedArea {
+  const fullTuple = text.match(
+    /(?:^|[\s,(])(?:ต\.|ตำบล)\s*([ก-๙]+)\s+(?:อ\.|อำเภอ)\s*([ก-๙]+(?:-[ก-๙]+)?)\s+(?:จว\.|จ\.|จังหวัด)\s*([ก-๙]+)/
+  );
+
+  let rawProv = fullTuple?.[3]?.trim() || '';
+  if (!rawProv) {
+    const provMatch = text.match(/(?:^|[\s,(])(จว\.|จ\.|จังหวัด)\s*([ก-๙]+)/);
+    if (provMatch) {
+      const cand = provMatch[2].trim();
+      if (!isCounterPrefixMatch(text, provMatch, 'จังหวัด') || matchAreaByThaiNames(cand)) {
+        rawProv = cand;
+      }
+    }
+  }
+
+  const explicitProvNorm = rawProv ? matchAreaByThaiNames(rawProv)?.province || rawProv : '';
+  const changedProv = Boolean(
+    explicitProvNorm && fallback.province && explicitProvNorm !== fallback.province
+  );
+  const effProv = explicitProvNorm || fallback.province;
+
+  let rawDist = fullTuple?.[2]?.trim() || '';
+  if (!rawDist) {
+    const distMatch = text.match(/(?:^|[\s,(])(อ\.|อำเภอ)\s*([ก-๙]+(?:-[ก-๙]+)?)/);
+    if (distMatch) {
+      const cand = distMatch[2].trim();
+      if (
+        !isCounterPrefixMatch(text, distMatch, 'อำเภอ') ||
+        matchAreaByThaiNames(effProv, cand)
+      ) {
+        rawDist = cand;
+      }
+    }
+  }
+
+  const explicitDistNorm = rawDist
+    ? matchAreaByThaiNames(effProv, rawDist)?.district || rawDist
+    : '';
+  const inheritedDist = changedProv ? '' : fallback.district;
+  const changedDist = Boolean(
+    explicitDistNorm && inheritedDist && explicitDistNorm !== inheritedDist
+  );
+  const effDist = explicitDistNorm || inheritedDist;
+
+  let rawSub = fullTuple?.[1]?.trim() || '';
+  if (!rawSub) {
+    const subMatch = text.match(/(?:^|[\s,(])(ต\.|ตำบล)\s*([ก-๙]+)/);
+    if (subMatch) {
+      const cand = subMatch[2].trim();
+      if (
+        !isCounterPrefixMatch(text, subMatch, 'ตำบล') ||
+        matchAreaByThaiNames(effProv, effDist, cand)
+      ) {
+        rawSub = cand;
+      }
+    }
+  }
+
+  if (!rawSub) {
+    const obtMatch = text.match(/(?:^|[\s,(])(?:อบต\.|ทต\.|เทศบาลตำบล)\s*([ก-๙]{2,})/);
+    if (obtMatch) {
+      const obtCandidate = obtMatch[1].trim();
+      const obtArea = matchAreaByThaiNames(effProv, effDist, obtCandidate);
+      if (obtArea) {
+        rawSub = obtArea.subdistrict;
+      }
+    }
+  }
+
+  const effSub = rawSub || (changedProv || changedDist ? '' : fallback.subdistrict);
+
+  if (!effProv && !effDist && !effSub) {
+    return { province: '', district: '', subdistrict: '', areaMatched: false };
+  }
+
+  const exact = matchAreaByThaiNames(effProv, effDist, effSub);
+  if (exact) {
+    return {
+      province: exact.province,
+      district: exact.district,
+      subdistrict: exact.subdistrict,
+      areaMatched: true,
+    };
+  }
+
+  if (effSub) {
+    const distOnly = matchAreaByThaiNames(effProv, effDist);
+    if (distOnly) {
+      return {
+        province: distOnly.province,
+        district: distOnly.district,
+        subdistrict: effSub,
+        areaMatched: true,
+      };
+    }
+  }
+
+  return {
+    province: effProv,
+    district: effDist,
+    subdistrict: effSub,
+    areaMatched: false,
+  };
+}
+
+function hasBalancedParens(text: string): boolean {
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
+}
+
+function extractTrailingCasualties(text: string): { body: string; casualtiesSummary: string } {
+  const casRegex =
+    /(ไม่มีผู้(?:ได้รับ)?บาดเจ็บ(?:(?:หรือ|และ)(?:ผู้)?เสียชีวิต)?|(?:(?:มี)?(?:ผู้|ประชาชน|ราษฎร|ชาวบ้าน|เจ้าหน้าที่|จนท\.|ตำรวจ|ตร\.|ทหารพราน|ทหาร|ทพ\.|อส\.|ชรบ\.)\s*(?:ได้รับ)?(?:บาดเจ็บ|เสียชีวิต)|ได้รับบาดเจ็บ|เสียชีวิต)(?:(?!พิกัด).)*?)(?=\s*พิกัด|$)/;
+  const match = text.match(casRegex);
+  if (!match || match.index === undefined) {
+    return { body: text, casualtiesSummary: '' };
+  }
+
+  const candidate = match[1].trim();
+  const before = text.slice(0, match.index);
+  const after = text.slice(match.index + match[0].length);
+
+  if (
+    !hasBalancedParens(before) ||
+    EVENT_COUNT_UNIT_RE.test(candidate) ||
+    EVENT_COUNT_UNIT_RE.test(after)
+  ) {
+    return { body: text, casualtiesSummary: '' };
+  }
+
+  return {
+    body: before.trim(),
+    casualtiesSummary: candidate,
+  };
+}
+
+function hasDistinctMultipleDistricts(text: string): boolean {
+  const matches = Array.from(
+    text.matchAll(/(?:^|[\s,(])(?:อ\.|อำเภอ)\s*([ก-๙]+(?:-[ก-๙]+)?)/g)
+  ).map((m) => m[1].trim());
+  return new Set(matches).size >= 2;
+}
+
+function buildLeafDraft(
+  occurredAt: string,
+  category: string,
+  area: ResolvedArea,
+  blockArea: ResolvedArea,
+  blockCoord: ParsedCoordinate | null,
+  clauseCoord: ParsedCoordinate | null,
+  eventCount: number,
+  detailsText: string,
+  damageSummary: string,
+  casualtiesSummary: string,
+  contextNotes: string
+): Omit<MultiAreaDraftItem, 'id'> {
+  const sameAreaAsBlock =
+    area.province === blockArea.province &&
+    area.district === blockArea.district &&
+    area.subdistrict === blockArea.subdistrict;
+  const effectiveCoord = clauseCoord || (sameAreaAsBlock ? blockCoord : null);
+  const center =
+    !effectiveCoord && area.province
+      ? getCenterOfArea(
+          area.province,
+          area.district || undefined,
+          area.subdistrict || undefined
+        )
+      : null;
+
+  return {
+    occurredAt,
+    category,
+    province: area.province,
+    district: area.district,
+    subdistrict: area.subdistrict,
+    lat: effectiveCoord ? effectiveCoord.lat : center ? center.lat : null,
+    lng: effectiveCoord ? effectiveCoord.lng : center ? center.lng : null,
+    eventCount: Math.max(1, eventCount),
+    details: contextNotes ? `${detailsText} (${contextNotes})` : detailsText,
+    damageSummary,
+    casualtiesSummary,
+    coordMatched: Boolean(effectiveCoord),
+    areaMatched: area.areaMatched,
+  };
+}
+
+function expandCountedClause(
+  clause: ParsedCountedClause,
+  ctx: {
+    occurredAt: string;
+    blockArea: ResolvedArea;
+    blockCoord: ParsedCoordinate | null;
+    contextNotes: string;
+    damageSummary: string;
+    casualtiesSummary: string;
+    headerCategory?: string;
+    blockDefaultCategory?: string;
+    parentLabel?: string;
+    fallbackCat: string;
+    availableCategories: string[];
+    warnings: string[];
+  }
+): Array<Omit<MultiAreaDraftItem, 'id'>> {
+  const {
+    occurredAt,
+    blockArea,
+    blockCoord,
+    contextNotes,
+    damageSummary,
+    casualtiesSummary,
+    headerCategory,
+    blockDefaultCategory,
+    parentLabel,
+    fallbackCat,
+    availableCategories,
+    warnings,
+  } = ctx;
+
+  if (clause.trailingParen) {
+    // Case A: Nested counted sub-clauses inside parentheses
+    const subClauses = parseCountedClauses(clause.trailingParen);
+    if (
+      subClauses.length >= 2 ||
+      (subClauses.length === 1 && subClauses[0].count === clause.count)
+    ) {
+      const subSum = subClauses.reduce((s, c) => s + c.count, 0);
+      if (subSum !== clause.count) {
+        warnings.push(
+          `หัวข้อย่อย "${clause.label}" ระบุ ${clause.count} แต่ผลรวมในวงเล็บได้ ${subSum} — กรุณาตรวจสอบ`
+        );
+      }
+      const results: Array<Omit<MultiAreaDraftItem, 'id'>> = [];
+      for (const sub of subClauses) {
+        results.push(
+          ...expandCountedClause(sub, {
+            ...ctx,
+            parentLabel: clause.label,
+          })
+        );
+      }
+      return results;
+    }
+
+    // Case B: Named target list matching clause.count >= 2
+    if (clause.count >= 2) {
+      const segments = splitTopLevelNamedItems(clause.trailingParen);
+      if (segments.length === clause.count) {
+        const leadingMatch = segments[0].match(NAMED_LEADING_ACTION_RE);
+        const leadingAction = leadingMatch ? leadingMatch[1].trim() : '';
+        const clauseCat = classifyCategoryFromText(clause.label, availableCategories);
+        const parenCat = classifyCategoryFromText(clause.trailingParen, availableCategories);
+
+        return segments.map((seg) => {
+          const segHasAction = NAMED_LEADING_ACTION_RE.test(seg);
+          const segOwnCat = classifyCategoryFromText(seg, availableCategories);
+          let segText = seg;
+          if (!segHasAction && !segOwnCat && leadingAction) {
+            segText = `${leadingAction} ${seg}`;
+          } else if (!segOwnCat && clauseCat) {
+            segText = `${clause.label}: ${seg}`;
+          }
+
+          const segArea = extractAreaFromText(seg, blockArea);
+          const segCoord = parseCoordinateInput(seg);
+          const category =
+            classifyCategoryFromText(segText, availableCategories) ||
+            clauseCat ||
+            parenCat ||
+            (parentLabel
+              ? classifyCategoryFromText(parentLabel, availableCategories)
+              : undefined) ||
+            blockDefaultCategory ||
+            headerCategory ||
+            fallbackCat;
+
+          return buildLeafDraft(
+            occurredAt,
+            category,
+            segArea,
+            blockArea,
+            blockCoord,
+            segCoord,
+            1,
+            segText,
+            damageSummary,
+            casualtiesSummary,
+            contextNotes
+          );
+        });
+      }
+    }
+  }
+
+  // Case C: Single leaf clause
+  const detailsText = clause.trailingParen
+    ? `${clause.rawClause} (${clause.trailingParen})`
+    : clause.rawClause;
+  const areaSource =
+    clause.trailingParen && !hasDistinctMultipleDistricts(clause.trailingParen)
+      ? `${clause.label} ${clause.trailingParen}`
+      : clause.label;
+  const leafArea = extractAreaFromText(areaSource, blockArea);
+  const leafCoord = parseCoordinateInput(detailsText);
+  const category =
+    classifyCategoryFromText(clause.label, availableCategories) ||
+    (clause.trailingParen
+      ? classifyCategoryFromText(clause.trailingParen, availableCategories)
+      : undefined) ||
+    (parentLabel ? classifyCategoryFromText(parentLabel, availableCategories) : undefined) ||
+    blockDefaultCategory ||
+    headerCategory ||
+    fallbackCat;
+
+  return [
+    buildLeafDraft(
+      occurredAt,
+      category,
+      leafArea,
+      blockArea,
+      blockCoord,
+      leafCoord,
+      clause.count,
+      detailsText,
+      damageSummary,
+      casualtiesSummary,
+      contextNotes
+    ),
+  ];
+}
+
 /**
- * Parse a multi-area Thai Paper report (e.g. 1.1 header + 1.1.1 / 1.1.2 district sub-items,
- * including wrapped lines and `แยกเป็น...` mixed-category breakdowns) into editable draft rows.
+ * Parse a multi-area Thai Paper report (e.g. 1.1 header + 1.1.1 / 1.1.2 province/district sub-items,
+ * including wrapped lines, `แยกเป็น...`, nested parenthetical breakdowns, and named `อบต.` target lists)
+ * into editable draft rows.
  */
 export function extractMultiAreaPaper(
   rawText: string,
@@ -343,49 +796,34 @@ export function extractMultiAreaPaper(
 
   const baseOccurredAt = headerMeta.occurredAt || '';
   const headerProvince = headerMeta.province || '';
+  const headerCategory = headerText
+    ? classifyCategoryFromText(headerText, availableCategories)
+    : undefined;
   if (headerMeta.matchedHints.length > 0) {
     matchedHints.push(...headerMeta.matchedHints.filter((h) => !h.startsWith('ประเภท:')));
   }
 
-  const totalMatch = headerText.match(/จำนวน\s*(\d+)\s*(?:จุด|แห่ง|พื้นที่|เหตุการณ์|รายการ)/);
-  const reportedTotalCount = totalMatch ? Number(totalMatch[1]) : undefined;
-  if (reportedTotalCount) {
-    matchedHints.push(`ยอดรวมตามหัวข้อข่าว: ${reportedTotalCount} เหตุการณ์/จุด`);
+  const totalMatch = headerText.match(
+    /จำนวน\s*(\d+)\s*(?:จุด|แห่ง|พื้นที่|เหตุการณ์|รายการ)/
+  );
+  const headerReportedTotalCount = totalMatch ? Number(totalMatch[1]) : undefined;
+  if (headerReportedTotalCount) {
+    matchedHints.push(`ยอดรวมตามหัวข้อข่าว: ${headerReportedTotalCount} เหตุการณ์/จุด`);
   }
 
-  const fallbackCat = (availableCategories[0] || 'อื่น ๆ');
+  const fallbackCat = availableCategories[0] || 'อื่น ๆ';
   const items: MultiAreaDraftItem[] = [];
+  const blockReportedCounts: number[] = [];
+  let activeItemBlocks = 0;
+  const singleParagraphFallback = rawBlocks.length === 0 && Boolean(headerText);
+  const blocksToParse = singleParagraphFallback ? [headerText] : rawBlocks;
 
-  for (const rawBlock of rawBlocks) {
+  for (const rawBlock of blocksToParse) {
     const cleanBlock = rawBlock.replace(/^(?:\d+(?:\.\d+)*[.)]?|[-•*])\s*/, '').trim();
     if (!cleanBlock) continue;
 
-    // Area extraction with province inheritance
-    const fullTuple = cleanBlock.match(
-      /(?:ต\.|ตำบล)\s*([ก-๙]+)\s+(?:อ\.|อำเภอ)\s*([ก-๙]+)\s+(?:จว\.|จ\.|จังหวัด)\s*([ก-๙]+)/
-    );
-    const subMatch = cleanBlock.match(/(?:^|\s)(?:ต\.|ตำบล)\s*([ก-๙]+)/);
-    const distMatch = cleanBlock.match(/(?:^|\s)(?:อ\.|อำเภอ)\s*([ก-๙]+)/);
-    const provMatch = cleanBlock.match(/(?:^|\s)(?:จว\.|จ\.|จังหวัด)\s*([ก-๙]+)/);
-
-    const rawSub = fullTuple?.[1]?.trim() || subMatch?.[1]?.trim() || '';
-    const rawDist = fullTuple?.[2]?.trim() || distMatch?.[1]?.trim() || '';
-    const rawProv = fullTuple?.[3]?.trim() || provMatch?.[1]?.trim() || headerProvince;
-
-    const areaMatch = matchAreaByThaiNames(rawProv, rawDist, rawSub);
-    const province = areaMatch?.province || rawProv || headerProvince || '';
-    const district = areaMatch?.district || rawDist || '';
-    const subdistrict = areaMatch?.subdistrict || rawSub || '';
-    const areaMatched = Boolean(areaMatch);
-
-    // Coordinates (explicit in sub-item, or district centroid fallback)
+    activeItemBlocks++;
     const coord = parseCoordinateInput(cleanBlock);
-    const center =
-      !coord && province
-        ? getCenterOfArea(province, district || undefined, subdistrict || undefined)
-        : null;
-    const lat = coord ? coord.lat : center ? center.lat : null;
-    const lng = coord ? coord.lng : center ? center.lng : null;
 
     // Optional per-item clock override
     const itemClock = extractExplicitClock(cleanBlock);
@@ -395,97 +833,187 @@ export function extractMultiAreaPaper(
         : baseOccurredAt;
 
     // Casualties & Damage clauses
-    const casMatch = cleanBlock.match(
-      /(ไม่มีผู้(?:ได้รับ)?บาดเจ็บ(?:หรือ|และ)?(?:เสียชีวิต)?|มีผู้(?:ได้รับ)?บาดเจ็บ[^,.\n]*|ผู้(?:ได้รับ)?บาดเจ็บ\s*\d+[^,.\n]*|เสียชีวิต\s*\d+[^,.\n]*)/
-    );
-    const casualtiesSummary = casMatch ? casMatch[1].trim() : '';
-
-    const beforeCas = casualtiesSummary
-      ? cleanBlock.slice(0, cleanBlock.indexOf(casualtiesSummary)).trim()
-      : cleanBlock;
-    const dmgMatch = beforeCas.match(
+    const { body: beforeCas, casualtiesSummary } = extractTrailingCasualties(cleanBlock);
+    const { masked: maskedBeforeCas, parens: casParens } = maskTopLevelParens(beforeCas);
+    const dmgMatch = maskedBeforeCas.match(
       /(?:ทำให้|ส่งผลให้|เบื้องต้นพบความเสียหาย|ได้รับความเสียหาย)(.+)$/
     );
-    const damageSummary = dmgMatch ? dmgMatch[1].replace(/^(?:เป็น|มี)\s*/, '').trim() : '';
+    const damageSummary = dmgMatch
+      ? restoreMaskedParens(dmgMatch[1], casParens).replace(/^(?:เป็น|มี)\s*/, '').trim()
+      : '';
+    const beforeDamage =
+      dmgMatch && dmgMatch.index !== undefined
+        ? restoreMaskedParens(maskedBeforeCas.slice(0, dmgMatch.index), casParens).trim()
+        : beforeCas;
 
-    // Check for mixed-category breakdown ("แยกเป็น ...")
-    const breakdownMatch = beforeCas.match(
-      /แยกเป็น\s*(.+?)(?=\s*(?:ทำให้|ส่งผลให้|เบื้องต้น|ได้รับความเสียหาย|$))/
-    );
+    // Detect breakdown ("แยกเป็น ..." / "ประกอบด้วย ...") or direct parenthetical expansion
+    const { masked: maskedBeforeDamage, parens: bdParens } = maskTopLevelParens(beforeDamage);
+    const breakdownMatch = maskedBeforeDamage.match(/^(.*?)\s*(?:แยกเป็น|ประกอบด้วย)\s*(.+)$/);
+
+    let blockHeaderText = '';
+    let clausesToExpand: ParsedCountedClause[] = [];
+    let isBreakdownBlock = false;
 
     if (breakdownMatch) {
-      const rawClauses = breakdownMatch[1]
-        .split(/\s*[,;]\s*(?:และ\s*)?|(?<=(?:เหตุการณ์|จุด|ครั้ง|เหตุ|ราย))\s+และ\s*/)
-        .map((c) => c.trim())
-        .filter(Boolean);
+      blockHeaderText = restoreMaskedParens(breakdownMatch[1], bdParens).trim();
+      const breakdownBody = restoreMaskedParens(breakdownMatch[2], bdParens).trim();
+      clausesToExpand = parseCountedClauses(breakdownBody);
+      isBreakdownBlock = clausesToExpand.length > 0;
+    } else {
+      const firstParenIdx = beforeDamage.indexOf('(');
+      blockHeaderText = (
+        firstParenIdx >= 0 ? beforeDamage.slice(0, firstParenIdx) : beforeDamage
+      ).trim();
+      const directClauses = parseCountedClauses(beforeDamage);
+      if (directClauses.some((c) => Boolean(c.trailingParen))) {
+        clausesToExpand = directClauses;
+      }
+    }
 
-      const parsedClauses = rawClauses.map((clause) => {
-        const cntMatch = clause.match(/(\d+)\s*(?:เหตุการณ์|จุด|ครั้ง|เหตุ|ราย)/);
-        return {
-          clause,
-          count: cntMatch ? Math.max(1, Number(cntMatch[1])) : 1,
-          hasExplicitCount: Boolean(cntMatch),
-          category: (classifyCategoryFromText(clause, availableCategories) ||
-            classifyCategoryFromText(cleanBlock, availableCategories) ||
-            fallbackCat),
-        };
-      });
+    const blockArea = extractAreaFromText(blockHeaderText || beforeDamage, {
+      province: headerProvince,
+      district: '',
+      subdistrict: '',
+    });
 
-      if (
-        parsedClauses.length >= 2 &&
-        parsedClauses.filter((c) => c.hasExplicitCount).length >= 2
-      ) {
-        const contextNotes = [
-          damageSummary ? `ความเสียหายรวม: ${damageSummary}` : '',
-          casualtiesSummary,
-        ]
-          .filter(Boolean)
-          .join(' | ');
+    const blockCountMatch = (blockHeaderText || beforeDamage).match(
+      /จำนวน\s*(\d+)\s*(?:เหตุการณ์|จุด|ครั้ง|เหตุ|ราย|แห่ง)/
+    );
+    const blockReportedCount = blockCountMatch ? Number(blockCountMatch[1]) : undefined;
+    if (blockReportedCount && !singleParagraphFallback) {
+      blockReportedCounts.push(blockReportedCount);
+    }
 
-        for (const sub of parsedClauses) {
-          items.push({
-            id: `draft-${items.length + 1}`,
+    const blockAreaLabel =
+      [
+        blockArea.subdistrict && `ต.${blockArea.subdistrict}`,
+        blockArea.district && `อ.${blockArea.district}`,
+        blockArea.province && `จว.${blockArea.province}`,
+      ]
+        .filter(Boolean)
+        .join(' ') || 'พื้นที่ย่อย';
+
+    if (clausesToExpand.length > 0) {
+      const isNegatedCas = /^ไม่มี/.test(casualtiesSummary);
+      const contextNotes = [
+        damageSummary ? `ความเสียหายรวม: ${damageSummary}` : '',
+        casualtiesSummary
+          ? isNegatedCas
+            ? casualtiesSummary
+            : `ภาพรวมพื้นที่: ${casualtiesSummary}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' | ');
+
+      const blockDefaultCategory = blockHeaderText
+        ? classifyCategoryFromText(blockHeaderText, availableCategories)
+        : undefined;
+
+      const expandedDrafts: Array<Omit<MultiAreaDraftItem, 'id'>> = [];
+      for (const clause of clausesToExpand) {
+        expandedDrafts.push(
+          ...expandCountedClause(clause, {
             occurredAt: itemOccurredAt,
-            category: sub.category,
-            province,
-            district,
-            subdistrict,
-            lat,
-            lng,
-            eventCount: sub.count,
-            details: contextNotes ? `${sub.clause} (${contextNotes})` : sub.clause,
+            blockArea,
+            blockCoord: coord,
+            contextNotes,
             damageSummary,
             casualtiesSummary,
-            coordMatched: Boolean(coord),
-            areaMatched,
+            headerCategory,
+            blockDefaultCategory,
+            fallbackCat,
+            availableCategories,
+            warnings,
+          })
+        );
+      }
+
+      if (
+        expandedDrafts.length >= 2 ||
+        (!singleParagraphFallback && isBreakdownBlock && expandedDrafts.length >= 1)
+      ) {
+        if (casualtiesSummary && !isNegatedCas) {
+          matchedHints.push(
+            `หมายเหตุผู้บาดเจ็บ/เสียชีวิต (${blockAreaLabel}): ${casualtiesSummary}`
+          );
+        }
+
+        const blockEmittedCount = expandedDrafts.reduce((sum, d) => sum + d.eventCount, 0);
+        if (blockReportedCount && blockEmittedCount !== blockReportedCount) {
+          warnings.push(
+            `พื้นที่ ${blockAreaLabel} ระบุ ${blockReportedCount} เหตุการณ์ แต่แยกย่อยได้ ${blockEmittedCount} เหตุการณ์ — กรุณาตรวจสอบ`
+          );
+        }
+
+        for (const draft of expandedDrafts) {
+          items.push({
+            id: `draft-${items.length + 1}`,
+            ...draft,
           });
         }
         continue;
       }
     }
 
-    const countMatch = cleanBlock.match(/จำนวน\s*(\d+)\s*(?:เหตุการณ์|จุด|ครั้ง|เหตุ|ราย)/);
-    const eventCount = countMatch ? Math.max(1, Number(countMatch[1])) : 1;
-    const category = (classifyCategoryFromText(cleanBlock, availableCategories) ||
-      classifyCategoryFromText(headerText, availableCategories) ||
-      fallbackCat);
+    if (singleParagraphFallback) continue;
+
+    // Fallback: single-item block
+    const center =
+      !coord && blockArea.province
+        ? getCenterOfArea(
+            blockArea.province,
+            blockArea.district || undefined,
+            blockArea.subdistrict || undefined
+          )
+        : null;
+    const eventCount = blockReportedCount ? Math.max(1, blockReportedCount) : 1;
+    const category =
+      classifyCategoryFromText(cleanBlock, availableCategories) ||
+      headerCategory ||
+      fallbackCat;
 
     items.push({
       id: `draft-${items.length + 1}`,
       occurredAt: itemOccurredAt,
       category,
-      province,
-      district,
-      subdistrict,
-      lat,
-      lng,
+      province: blockArea.province,
+      district: blockArea.district,
+      subdistrict: blockArea.subdistrict,
+      lat: coord ? coord.lat : center ? center.lat : null,
+      lng: coord ? coord.lng : center ? center.lng : null,
       eventCount,
       details: cleanBlock,
       damageSummary,
       casualtiesSummary,
       coordMatched: Boolean(coord),
-      areaMatched,
+      areaMatched: blockArea.areaMatched,
     });
+  }
+
+  let reportedTotalCount = headerReportedTotalCount;
+  if (
+    reportedTotalCount === undefined &&
+    blockReportedCounts.length >= 2 &&
+    blockReportedCounts.length === activeItemBlocks
+  ) {
+    reportedTotalCount = blockReportedCounts.reduce((sum, n) => sum + n, 0);
+    matchedHints.push(`ยอดรวมจากแต่ละพื้นที่: ${reportedTotalCount} เหตุการณ์/จุด`);
+  }
+
+  const provinceTotals = new Map<string, number>();
+  for (const item of items) {
+    if (!item.province) continue;
+    provinceTotals.set(
+      item.province,
+      (provinceTotals.get(item.province) || 0) + item.eventCount
+    );
+  }
+  if (provinceTotals.size >= 2) {
+    const summaryParts = Array.from(provinceTotals.entries()).map(
+      ([prov, cnt]) => `จว.${prov} ${cnt}`
+    );
+    matchedHints.push(`สรุปรายจังหวัด: ${summaryParts.join(' • ')}`);
   }
 
   const parsedTotalCount = items.reduce((sum, item) => sum + item.eventCount, 0);
@@ -504,7 +1032,7 @@ export function extractMultiAreaPaper(
   const fallbackCoordCount = items.filter((i) => !i.coordMatched && i.lat !== null).length;
   if (fallbackCoordCount > 0) {
     warnings.push(
-      `พบ ${fallbackCoordCount} รายการที่ไม่มีพิกัดในข้อความ จึงวางหมุดที่กึ่งกลางอำเภอให้อัตโนมัติ (คลิกหมุดบนแผนที่เพื่อปักจุดแม่นยำได้)`
+      `พบ ${fallbackCoordCount} รายการที่ไม่มีพิกัดในข้อความ จึงวางหมุดที่กึ่งกลางพื้นที่ (จังหวัด/อำเภอ/ตำบล) ให้อัตโนมัติ (คลิกหมุดบนแผนที่เพื่อปักจุดแม่นยำได้)`
     );
   }
 

@@ -28,10 +28,9 @@ export function getIncidentWeight(item: Pick<IncidentRecord, 'eventCount'>): num
  */
 export function classifyIncidentSeverity(category: string, details = ''): SeverityMeta {
   const cat = (category || '').trim();
-  const cleanedDetails = (details || '').replace(
-    /ไม่มีผู้(?:ได้รับ)?บาดเจ็บ(?:(?:หรือ|และ)เสียชีวิต)?/g,
-    ''
-  );
+  const cleanedDetails = (details || '')
+    .replace(/\([^)]*(?:ภาพรวมพื้นที่|ความเสียหายรวม):[^)]*\)/g, '')
+    .replace(/ไม่มีผู้(?:ได้รับ)?บาดเจ็บ(?:(?:หรือ|และ)เสียชีวิต)?/g, '');
 
   if (/ปะทะ|ปิดล้อม|ระเบิด|ปืน|ซุ่มยิง|ซุ่มโจมตี|ลอบยิง|M79|I\.?E\.?D\.?|คาร์บอมบ์/i.test(cat)) {
     return SEVERITY_LEVELS[0];

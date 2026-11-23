@@ -6,7 +6,7 @@ import type {
   WatchAreaTarget,
 } from '../types/incident';
 import { buildParsedCoordinate, parseCoordinateInput } from './coordinates';
-import { lookupAreaByLatLng, matchAreaByThaiNames } from './geoLookup';
+import { getCenterOfArea, lookupAreaByLatLng, matchAreaByThaiNames } from './geoLookup';
 import {
   classifyCategoryFromText,
   extractPaperMetadata,
@@ -264,12 +264,41 @@ export function parsePulledGasResponse(
           : Boolean(province);
 
     if (lat !== null && lng !== null && (!province || !district || !subdistrict)) {
-      const areaMatch = lookupAreaByLatLng(lat, lng);
-      if (areaMatch.inTargetArea) {
-        province = province || areaMatch.province;
-        district = district || areaMatch.district;
-        subdistrict = subdistrict || areaMatch.subdistrict;
-        inTargetArea = true;
+      if (!province) {
+        const areaMatch = lookupAreaByLatLng(lat, lng);
+        if (areaMatch.inTargetArea) {
+          province = areaMatch.province;
+          district = district || areaMatch.district;
+          subdistrict = subdistrict || areaMatch.subdistrict;
+          inTargetArea = true;
+        }
+      } else if (!district) {
+        const provCenter = getCenterOfArea(province);
+        if (
+          !provCenter ||
+          Math.abs(lat - provCenter.lat) >= 0.001 ||
+          Math.abs(lng - provCenter.lng) >= 0.001
+        ) {
+          const areaMatch = lookupAreaByLatLng(lat, lng);
+          if (areaMatch.inTargetArea) {
+            district = areaMatch.district;
+            subdistrict = subdistrict || areaMatch.subdistrict;
+            inTargetArea = true;
+          }
+        }
+      } else {
+        const distCenter = getCenterOfArea(province, district);
+        if (
+          !distCenter ||
+          Math.abs(lat - distCenter.lat) >= 0.001 ||
+          Math.abs(lng - distCenter.lng) >= 0.001
+        ) {
+          const areaMatch = lookupAreaByLatLng(lat, lng);
+          if (areaMatch.inTargetArea) {
+            subdistrict = areaMatch.subdistrict;
+            inTargetArea = true;
+          }
+        }
       }
     }
 

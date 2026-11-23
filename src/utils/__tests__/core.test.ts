@@ -11,6 +11,7 @@ import {
   parsePulledGasResponse,
 } from '../gasSync';
 import {
+  getCenterOfArea,
   getWatchZonePolygonsGeoJson,
   lookupAreaByLatLng,
   matchAreaByThaiNames,
@@ -765,5 +766,179 @@ describe('CCTV Destruction Category & Legacy WATCH- Compatibility', () => {
       province: 'ปัตตานี',
       district: 'ยะรัง',
     });
+  });
+});
+
+describe('Hierarchical Multi-Province Report, Area Precision & Aggregate Pull Guard', () => {
+  it('keeps missing district and subdistrict empty in matchAreaByThaiNames', () => {
+    expect(matchAreaByThaiNames('', '', '')).toBeNull();
+
+    const provOnly = matchAreaByThaiNames('ยะลา');
+    expect(provOnly).not.toBeNull();
+    expect(provOnly?.province).toBe('ยะลา');
+    expect(provOnly?.district).toBe('');
+    expect(provOnly?.subdistrict).toBe('');
+
+    const distOnly = matchAreaByThaiNames('ปัตตานี', 'ปะนาเระ');
+    expect(distOnly).not.toBeNull();
+    expect(distOnly?.province).toBe('ปัตตานี');
+    expect(distOnly?.district).toBe('ปะนาเระ');
+    expect(distOnly?.subdistrict).toBe('');
+
+    const full = matchAreaByThaiNames('นราธิวาส', 'ยี่งอ', 'ละหาร');
+    expect(full?.province).toBe('นราธิวาส');
+    expect(full?.district).toBe('ยี่งอ');
+    expect(full?.subdistrict).toBe('ละหาร');
+  });
+
+  it('parses multi-province hierarchical reports with nested breakdowns, named อบต. targets, and trailing casualties', () => {
+    const syntheticMultiProvince = [
+      '๑.๑\tเมื่อ ๑๐ พ.ค.๖๘ เกิดเหตุจำลองเพื่อทดสอบระบบในพื้นที่ จชต.พร้อมกันหลายเหตุการณ์ โดยมีรายละเอียดดังนี้',
+      '\t\t\t๑.๑.๑.\tจว.ยะลา จำนวน ๑๒ เหตุการณ์ ในพื้นที่ ๓ อำเภอ แยกเป็น เหตุทำลายทรัพย์สินของทางราชการ จำนวน ๒ เหตุการณ์ (วางเพลิง อบต. ๑ เหตุการณ์ วางเพลิงสำนักงานการเกษตร',
+      '๑ เหตุการณ์) เหตุก่อกวน จำนวน ๘ เหตุการณ์ (เผายาง ๔ เหตุการณ์ เผากล้อง CCTV ๑ เหตุการณ์ พบวัตถุต้องสงสัย ๑ เหตุการณ์ โปรยตะปูเรือใบ ๑ เหตุการณ์ เผาป้ายโฆษณา ๑ เหตุการณ์) และลอบวางเพลิง',
+      'เสาสัญญาณ ๒ เหตุการณ์',
+      '\t\t\t๑.๑.๒\tจว.ปัตตานี จำนวน ๖ เหตุการณ์ ในพื้นที่ ๓ อำเภอ แยกเป็น เหตุทำลายทรัพย์สินของทางราชการ จำนวน ๒ เหตุการณ์ (วางเพลิง อบต.ควน อ.ปะนาเระ และ อบต.กะดุนง อ.สายบุรี) ก่อกวน จำนวน ๒ เหตุการณ์ (เผายาง ๑ เหตุการณ์ ยิงก่อกวนพร้อมวางวัตถุต้องสงสัย ๑ เหตุการณ์)',
+      'ปล้นร้านสะดวกซื้อพร้อมวางระเบิด จำนวน ๑ เหตุการณ์ และลอบวางเพลิงเสาสัญญาณ จำนวน ๑ เหตุการณ์',
+      '\t\t\t๑.๑.๓\tจว.นราธิวาส จำนวน ๑๑ เหตุการณ์ ในพื้นที่ ๕ อำเภอ แยกเป็น',
+      'เหตุวางระเบิด จำนวน ๔ เหตุการณ์ เหตุวางเพลิงสถานที่ราชการ จำนวน ๓ เหตุการณ์ (อบต.ละหาร อ.ยี่งอ, อบต.ปะลุกาสาเมาะ อ.บาเจาะ และ อบต.กะลุวอ อ.เมืองนราธิวาส) และเหตุวางเพลิงก่อกวน จำนวน ๔ เหตุการณ์',
+      '(เผายางรถยนต์ ๒ เหตุการณ์ เผาเสาไฟฟ้า ๑ เหตุการณ์ เผาศาลา ๑ เหตุการณ์ ) ประชาชนได้รับบาดเจ็บ จำนวน ๒ คน',
+    ].join('\n');
+
+    const parsed = extractMultiAreaPaper(syntheticMultiProvince, DEFAULT_CATEGORIES);
+    expect(parsed.occurredAt).toBe('2025-05-10T08:00');
+    expect(parsed.reportedTotalCount).toBe(29);
+
+    const grandTotal = parsed.items.reduce((sum, i) => sum + i.eventCount, 0);
+    expect(grandTotal).toBe(29);
+    expect(parsed.matchedHints.some((h) => h.includes('สรุปรายจังหวัด:'))).toBe(true);
+    expect(parsed.matchedHints.some((h) => h.includes('ตรงตามหัวข้อข่าว 29 จุด'))).toBe(true);
+
+    // Block 1: Yala (12 events across 8 items, province-level without fake district)
+    const yalaItems = parsed.items.filter((i) => i.province === 'ยะลา');
+    expect(yalaItems.reduce((s, i) => s + i.eventCount, 0)).toBe(12);
+    expect(yalaItems.every((i) => i.district === '' && i.subdistrict === '')).toBe(true);
+    expect(yalaItems.find((i) => i.details.includes('เผากล้อง CCTV'))?.category).toBe(
+      CCTV_DESTRUCTION_CATEGORY
+    );
+    expect(yalaItems.find((i) => i.details.includes('เผาป้ายโฆษณา'))?.category).toBe(
+      'ก่อกวน/โปรยตะปูเรือใบ-เผายาง'
+    );
+    expect(yalaItems.find((i) => i.details.includes('เสาสัญญาณ'))?.category).toBe('วางเพลิง');
+
+    // Block 2: Pattani (6 events across 6 items; named อบต. targets resolved to subdistricts, others stay province-level)
+    const patItems = parsed.items.filter((i) => i.province === 'ปัตตานี');
+    expect(patItems.reduce((s, i) => s + i.eventCount, 0)).toBe(6);
+
+    const kuanItem = patItems.find((i) => i.subdistrict === 'ควน');
+    expect(kuanItem?.district).toBe('ปะนาเระ');
+    expect(kuanItem?.category).toBe('วางเพลิง');
+    expect(kuanItem?.eventCount).toBe(1);
+
+    const kadunongItem = patItems.find((i) => i.subdistrict === 'กะดุนง');
+    expect(kadunongItem?.district).toBe('สายบุรี');
+    expect(kadunongItem?.category).toBe('วางเพลิง');
+    expect(kadunongItem?.details).toContain('วางเพลิง');
+
+    const patHarass = patItems.find((i) => i.details.startsWith('เผายาง'));
+    expect(patHarass?.district).toBe('');
+    expect(patHarass?.category).toBe('ก่อกวน/โปรยตะปูเรือใบ-เผายาง');
+
+    const patGun = patItems.find((i) => i.details.includes('ยิงก่อกวน'));
+    expect(patGun?.category).toBe('ใช้อาวุธปืน/ลอบยิง');
+
+    const patRobberyBomb = patItems.find((i) => i.details.includes('ปล้นร้านสะดวกซื้อ'));
+    expect(patRobberyBomb?.category).toBe('ระเบิด');
+
+    // Block 3: Narathiwat (11 events across 7 items; named อบต. targets inherit วางเพลิง; trailing casualty doesn't escalate ก่อกวน)
+    const naraItems = parsed.items.filter((i) => i.province === 'นราธิวาส');
+    expect(naraItems.reduce((s, i) => s + i.eventCount, 0)).toBe(11);
+
+    expect(naraItems.find((i) => i.subdistrict === 'ละหาร')?.district).toBe('ยี่งอ');
+    expect(naraItems.find((i) => i.subdistrict === 'ปะลุกาสาเมาะ')?.district).toBe('บาเจาะ');
+    expect(naraItems.find((i) => i.subdistrict === 'กะลุวอ')?.district).toBe('เมืองนราธิวาส');
+    expect(
+      naraItems
+        .filter((i) => ['ละหาร', 'ปะลุกาสาเมาะ', 'กะลุวอ'].includes(i.subdistrict))
+        .every((i) => i.category === 'วางเพลิง' && i.eventCount === 1)
+    ).toBe(true);
+
+    const naraTires = naraItems.find((i) => i.details.includes('เผายางรถยนต์'));
+    expect(naraTires?.category).toBe('ก่อกวน/โปรยตะปูเรือใบ-เผายาง');
+    expect(naraTires?.eventCount).toBe(2);
+    expect(naraTires?.casualtiesSummary).toBe('ประชาชนได้รับบาดเจ็บ จำนวน 2 คน');
+    expect(classifyIncidentSeverity(naraTires!.category, naraTires!.details).level).toBe('medium');
+
+    expect(naraItems.find((i) => i.details.includes('เผาเสาไฟฟ้า'))?.category).toBe('วางเพลิง');
+    expect(naraItems.find((i) => i.details.includes('เผาศาลา'))?.category).toBe('วางเพลิง');
+  });
+
+  it('expands direct parenthetical counts without แยกเป็น and preserves province-centroid rows on GAS pull', () => {
+    const directParen = 'เมื่อ ๑๒ พ.ค.๖๘ จว.ยะลา จำนวน ๕ เหตุการณ์ (วางเพลิง อบต. ๒ เหตุการณ์ ก่อกวน ๓ เหตุการณ์)';
+    const parsedDirect = extractMultiAreaPaper(directParen, DEFAULT_CATEGORIES);
+    expect(parsedDirect.items).toHaveLength(2);
+    expect(parsedDirect.items.reduce((s, i) => s + i.eventCount, 0)).toBe(5);
+    expect(parsedDirect.items[0].province).toBe('ยะลา');
+    expect(parsedDirect.items[0].district).toBe('');
+
+    const yalaCenter = getCenterOfArea('ยะลา')!;
+    const pulled = parsePulledGasResponse(
+      {
+        ok: true,
+        ipbRows: [
+          {
+            id: 'INC-PROV-AGG-1',
+            occurredAt: '2025-05-10T08:00',
+            lat: yalaCenter.lat,
+            lng: yalaCenter.lng,
+            province: 'ยะลา',
+            district: '',
+            subdistrict: '',
+            category: 'ระเบิด',
+            details: 'สรุปรวมระดับจังหวัดทดสอบ',
+            reporter: 'ศปก.ทดสอบ',
+            eventCount: 4,
+          },
+          {
+            id: 'INC-NOGEO-1',
+            occurredAt: '2025-05-10T09:00',
+            lat: 6.0462,
+            lng: 101.2015,
+            province: '',
+            district: '',
+            subdistrict: '',
+            category: 'วางเพลิง',
+            details: 'เหตุทดสอบระบุพิกัดโดยไม่มีชื่อจังหวัด',
+            reporter: 'ศปก.ทดสอบ',
+          },
+        ],
+        legacyRows: [],
+      },
+      DEFAULT_SETTINGS
+    );
+
+    const provAgg = pulled.records.find((r) => r.id === 'INC-PROV-AGG-1');
+    expect(provAgg?.province).toBe('ยะลา');
+    expect(provAgg?.district).toBe('');
+    expect(provAgg?.subdistrict).toBe('');
+
+    const geocoded = pulled.records.find((r) => r.id === 'INC-NOGEO-1');
+    expect(geocoded?.province).toBe('ยะลา');
+    expect(geocoded?.district).toBe('ธารโต');
+    expect(geocoded?.subdistrict).toBe('แม่หวาด');
+  });
+
+  it('resolves hyphenless districts, invalid subdistricts, and province centroids in getCenterOfArea', () => {
+    const golokCenter = getCenterOfArea('นราธิวาส', 'สุไหงโกลก');
+    expect(golokCenter).not.toBeNull();
+    expect(golokCenter).toEqual(getCenterOfArea('นราธิวาส', 'สุไหงโก-ลก'));
+
+    const yarangCenter = getCenterOfArea('ปัตตานี', 'ยะรัง');
+    expect(yarangCenter).not.toBeNull();
+    expect(getCenterOfArea('ปัตตานี', 'ยะรัง', 'ตำบลทดสอบที่ไม่มีในแผนที่')).toEqual(yarangCenter);
+
+    const pattaniCenter = getCenterOfArea('ปัตตานี');
+    expect(pattaniCenter).not.toBeNull();
+    expect(pattaniCenter!.lat).toBeGreaterThan(6);
+    expect(pattaniCenter!.lng).toBeGreaterThan(100);
   });
 });

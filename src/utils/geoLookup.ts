@@ -147,12 +147,20 @@ export function getCenterOfArea(
   district?: string,
   subdistrict?: string
 ): { lat: number; lng: number } | null {
-  const matches = BOUNDARIES.filter(
+  const normDistrict = district ? district.replace(/-/g, '') : '';
+  let matches = BOUNDARIES.filter(
     (e) =>
       e.p === province &&
-      (!district || e.d === district) &&
+      (!district || e.d === district || e.d.replace(/-/g, '') === normDistrict) &&
       (!subdistrict || e.s === subdistrict)
   );
+  if (!matches.length && subdistrict) {
+    matches = BOUNDARIES.filter(
+      (e) =>
+        e.p === province &&
+        (!district || e.d === district || e.d.replace(/-/g, '') === normDistrict)
+    );
+  }
   if (!matches.length) return null;
 
   let minLng = Infinity;
@@ -209,6 +217,8 @@ export function matchAreaByThaiNames(
   const d = resolveDistrictAlias(rawDist, p);
   const s = normalizeAreaToken(subdistrictHint);
 
+  if (!p && !d && !s) return null;
+
   const exact = BOUNDARIES.find(
     (e) =>
       (!p || e.p === p) &&
@@ -218,9 +228,9 @@ export function matchAreaByThaiNames(
   if (exact) {
     return {
       province: exact.p,
-      district: exact.d,
-      subdistrict: exact.s,
-      code: exact.c,
+      district: d || s ? exact.d : '',
+      subdistrict: s ? exact.s : '',
+      code: s ? exact.c : '',
       inTargetArea: true,
       source: 'text-extracted',
     };
