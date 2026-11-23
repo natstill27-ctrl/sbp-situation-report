@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { GovFooter } from './components/GovFooter';
 import { GovHeader, type ActiveTab } from './components/GovHeader';
 import { IncidentFormPage } from './components/IncidentFormPage';
-import { IpbDashboardPage } from './components/IpbDashboardPage';
-import { MapAndListPage } from './components/MapAndListPage';
-import { SettingsPage } from './components/SettingsPage';
 import { DEFAULT_SETTINGS, buildSampleIncidents } from './data/defaults';
 import type { AppSettings, IncidentRecord } from './types/incident';
+import { decodeConfigHash } from './utils/configShare';
 import { pullIncidentsFromGas, sendIncidentToGas, type GasPullResult } from './utils/gasSync';
 import {
   clearAllIncidents,
@@ -18,6 +16,22 @@ import {
   saveSettings,
 } from './utils/storage';
 
+const IpbDashboardPage = lazy(() =>
+  import('./components/IpbDashboardPage').then((m) => ({ default: m.IpbDashboardPage }))
+);
+const MapAndListPage = lazy(() =>
+  import('./components/MapAndListPage').then((m) => ({ default: m.MapAndListPage }))
+);
+const SettingsPage = lazy(() =>
+  import('./components/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+);
+
+function formatClockHHmm(date: Date): string {
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${hh}.${mm}`;
+}
+
 export function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('entry');
   const [incidents, setIncidents] = useState<IncidentRecord[]>([]);
@@ -26,6 +40,8 @@ export function App() {
 
   const [editingIncident, setEditingIncident] = useState<IncidentRecord | null>(null);
   const [lastSavedRecord, setLastSavedRecord] = useState<IncidentRecord | null>(null);
+  const [lastPulledAt, setLastPulledAt] = useState<string | null>(null);
+  const [startupNotice, setStartupNotice] = useState<string>('');
 
   const [fontScale, setFontScale] = useState<number>(1);
   const [highContrast, setHighContrast] = useState<boolean>(false);
@@ -38,9 +54,47 @@ export function App() {
         loadSettings(),
       ]);
       if (!active) return;
+
+      let effectiveSettings = loadedSettings;
+      const hashConfig = decodeConfigHash(window.location.hash);
+      if (hashConfig) {
+        effectiveSettings = {
+          ...loadedSettings,
+          ...hashConfig,
+          fieldMapping: {
+            ...loadedSettings.fieldMapping,
+            ...(hashConfig.fieldMapping || {}),
+          },
+        };
+        await saveSettings(effectiveSettings);
+        window.history.replaceState(
+          null,
+          '',
+          `${window.location.pathname}${window.location.search}`
+        );
+        if (active) {
+          setStartupNotice('นำเข้าการตั้งค่าเชื่อมต่อระบบจากลิงก์เรียบร้อยแล้ว');
+        }
+      }
+
       setIncidents(loadedIncidents);
-      setSettings(loadedSettings);
+      setSettings(effectiveSettings);
       setLoading(false);
+
+      const syncUrl = (effectiveSettings.gasFetchUrl || effectiveSettings.gasWebhookUrl).trim();
+      if (effectiveSettings.autoPullOnLoad && syncUrl) {
+        const pullRes = await pullIncidentsFromGas(effectiveSettings);
+        if (active && pullRes.ok) {
+          if (pullRes.records.length > 0) {
+            await saveIncidentsBatch(pullRes.records);
+            const reloaded = await loadIncidents();
+            if (active) setIncidents(reloaded);
+          }
+          if (active) {
+            setLastPulledAt(formatClockHHmm(new Date()));
+          }
+        }
+      }
     })();
     return () => {
       active = false;
@@ -91,11 +145,21 @@ export function App() {
 
     if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
       const syncRes = await sendIncidentToGas(finalRecord, settings);
+      const returnedRow =
+        syncRes.responseData &&
+        typeof syncRes.responseData === 'object' &&
+        'legacyRowNumber' in syncRes.responseData
+          ? Number((syncRes.responseData as Record<string, unknown>).legacyRowNumber)
+          : undefined;
       finalRecord = {
         ...finalRecord,
         syncStatus: syncRes.ok ? 'synced' : 'failed',
         lastSyncAttempt: new Date().toISOString(),
         syncError: syncRes.ok ? undefined : syncRes.message,
+        legacyRowNumber:
+          returnedRow && Number.isFinite(returnedRow)
+            ? returnedRow
+            : finalRecord.legacyRowNumber,
       };
       await saveIncident(finalRecord);
       upsertLocalIncident(finalRecord);
@@ -153,10 +217,13 @@ export function App() {
   const handlePullFromGas = async (overrideSettings?: AppSettings): Promise<GasPullResult> => {
     const activeSettings = overrideSettings || settings;
     const res = await pullIncidentsFromGas(activeSettings);
-    if (res.ok && res.records.length > 0) {
-      await saveIncidentsBatch(res.records);
-      const reloaded = await loadIncidents();
-      setIncidents(reloaded);
+    if (res.ok) {
+      if (res.records.length > 0) {
+        await saveIncidentsBatch(res.records);
+        const reloaded = await loadIncidents();
+        setIncidents(reloaded);
+      }
+      setLastPulledAt(formatClockHHmm(new Date()));
     }
     return res;
   };
@@ -171,6 +238,7 @@ export function App() {
         settings={settings}
         pendingSyncCount={pendingSyncCount}
         totalIncidents={incidents.length}
+        lastPulledAt={lastPulledAt}
         fontScale={fontScale}
         onChangeFontScale={setFontScale}
         highContrast={highContrast}
@@ -179,12 +247,31 @@ export function App() {
 
       <main id="main-content" className="gov-main" tabIndex={-1}>
         <div className="gov-container">
+          {startupNotice && (
+            <div className="inline-alert info startup-banner" role="status">
+              <span>{startupNotice}</span>
+              <button
+                type="button"
+                className="btn-xs btn-outline"
+                onClick={() => setStartupNotice('')}
+              >
+                ปิด
+              </button>
+            </div>
+          )}
+
           {loading ? (
             <div className="gov-card loading-card" role="status">
               กำลังโหลดข้อมูลระบบ...
             </div>
           ) : (
-            <>
+            <Suspense
+              fallback={
+                <div className="gov-card loading-card" role="status">
+                  กำลังโหลดหน้าจอ...
+                </div>
+              }
+            >
               {activeTab === 'entry' && (
                 <IncidentFormPage
                   settings={settings}
@@ -229,7 +316,7 @@ export function App() {
                   onPullFromGas={handlePullFromGas}
                 />
               )}
-            </>
+            </Suspense>
           )}
         </div>
       </main>

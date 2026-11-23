@@ -7,5 +7,23 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('southern_boundaries.json')) return 'geo-boundaries';
+          if (id.includes('node_modules/leaflet') || id.includes('node_modules/pmtiles')) {
+            return 'vendor-leaflet';
+          }
+          if (id.includes('node_modules/milsymbol')) return 'vendor-milsymbol';
+          if (
+            id.includes('node_modules/react') ||
+            id.includes('node_modules/react-dom') ||
+            id.includes('node_modules/lucide-react')
+          ) {
+            return 'vendor-react';
+          }
+        },
+      },
+    },
   },
 });

@@ -50,12 +50,16 @@ export function buildLegacyLocationText(record: IncidentRecord): string {
  */
 export function buildGasPayload(record: IncidentRecord, settings: AppSettings): Record<string, unknown> {
   const m = settings.fieldMapping;
+  const inferredRow =
+    record.legacyRowNumber ??
+    (/^LEGACY-ROW-(\d+)$/.test(record.id) ? Number(record.id.replace('LEGACY-ROW-', '')) : undefined);
   const payload: Record<string, unknown> = {
     action: 'createOrUpdateIncident',
     ipbSheetName: (settings.ipbSheetName || 'สถานการณ์_3_จชต_IPB').trim(),
     dualWriteLegacy: settings.legacyDualWrite,
     legacySheetName: (settings.legacySheetName || 'ชีต1').trim(),
     sendLine: settings.legacySendLine,
+    legacyRowNumber: inferredRow ?? '',
     legacy: {
       date: (record.occurredAt || '').slice(0, 10),
       incident_type: (settings.legacyIncidentType || 'สถานการณ์ 3 จชต.').trim(),
@@ -115,7 +119,7 @@ function toOptionalNumber(value: unknown): number | null {
 function normalizeOccurredAt(value: unknown): string {
   const str = String(value ?? '').trim();
   if (!str) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return `${str}T00:00`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(str)) return str.slice(0, 16);
   const parsed = new Date(str);
   if (!Number.isNaN(parsed.getTime())) {
@@ -223,6 +227,7 @@ export function parsePulledGasResponse(
       updatedAt: createdAt,
       syncStatus: 'synced',
       sourceSheet: 'ipb',
+      legacyRowNumber: toOptionalNumber(row.legacyRowNumber) ?? undefined,
     });
   }
 
@@ -314,7 +319,7 @@ export function parsePulledGasResponse(
 
     legacyRecords.push({
       id,
-      occurredAt: dateStr ? `${dateStr}T00:00` : '',
+      occurredAt: dateStr,
       coordinateRaw: gpsText && gpsText !== '-' ? gpsText : '',
       lat: parsedCoord?.lat ?? null,
       lng: parsedCoord?.lng ?? null,
@@ -331,6 +336,7 @@ export function parsePulledGasResponse(
       updatedAt: createdAt,
       syncStatus: 'synced',
       sourceSheet: 'legacy',
+      legacyRowNumber: typeof row.rowNumber === 'number' && row.rowNumber > 1 ? row.rowNumber : undefined,
     });
   }
 
@@ -648,7 +654,8 @@ function doPost(e) {
     }
 
     // 1. บันทึก/อัปเดตลงชีตเดิม (10 คอลัมน์ A-J) แบบ Dual-Write
-    var legacyRowNum = existingLegacyRow ? Number(existingLegacyRow) : '';
+    var incomingLegacyRow = data.legacyRowNumber ? Number(data.legacyRowNumber) : '';
+    var legacyRowNum = existingLegacyRow ? Number(existingLegacyRow) : incomingLegacyRow;
     var resolvedLegacyName = String(data.legacySheetName || SBP_LEGACY_SHEET_NAME);
     if (data.dualWriteLegacy !== false) {
       var legacySheet = ss.getSheetByName(resolvedLegacyName);

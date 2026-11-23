@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { IncidentRecord } from '../types/incident';
@@ -7,6 +7,8 @@ import { getMilSymbolIconOptions } from '../utils/milSymbols';
 import { createPmtilesRasterLayer } from '../utils/pmtilesLayer';
 import { formatThaiDateTime } from '../utils/thaiDate';
 import { getDistrictBoundariesGeoJson } from '../utils/geoLookup';
+
+export type BasemapType = 'osm' | 'satellite' | 'topo';
 
 const DEFAULT_CENTER: [number, number] = [6.48, 101.42];
 const DEFAULT_ZOOM = 9;
@@ -25,10 +27,25 @@ function createPinIcon(color: string, large = false): L.DivIcon {
   });
 }
 
-function createBaseTileLayer(offlinePmtilesUrl?: string): L.GridLayer {
+function createBaseTileLayer(offlinePmtilesUrl?: string, basemap: BasemapType = 'osm'): L.GridLayer {
   const pmtilesUrl = (offlinePmtilesUrl || '').trim();
   if (pmtilesUrl) {
     return createPmtilesRasterLayer(pmtilesUrl);
+  }
+  if (basemap === 'satellite') {
+    return L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        attribution: 'Tiles &copy; Esri',
+        maxZoom: 18,
+      }
+    );
+  }
+  if (basemap === 'topo') {
+    return L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenTopoMap',
+      maxZoom: 17,
+    });
   }
   return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
@@ -69,9 +86,11 @@ interface OverviewMapProps {
 type LeafletMapProps = PickerMapProps | OverviewMapProps;
 
 export function LeafletMap(props: LeafletMapProps) {
+  const [basemap, setBasemap] = useState<BasemapType>('osm');
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const baseLayerRef = useRef<L.GridLayer | null>(null);
+  const baseKeyRef = useRef<string>('');
   const boundaryLayerRef = useRef<L.GeoJSON | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const pickerMarkerRef = useRef<L.Marker | null>(null);
@@ -94,9 +113,10 @@ export function LeafletMap(props: LeafletMapProps) {
       zoomControl: true,
     });
 
-    const initialBaseLayer = createBaseTileLayer(props.offlinePmtilesUrl);
+    const initialBaseLayer = createBaseTileLayer(props.offlinePmtilesUrl, basemap);
     initialBaseLayer.addTo(map);
     baseLayerRef.current = initialBaseLayer;
+    baseKeyRef.current = `${(props.offlinePmtilesUrl || '').trim()}|${basemap}`;
 
     const boundaryLayer = L.geoJSON(getDistrictBoundariesGeoJson() as GeoJSON.GeoJsonObject, {
       style: {
@@ -138,18 +158,22 @@ export function LeafletMap(props: LeafletMapProps) {
     };
   }, []);
 
-  // Switch between online OSM and offline PMTiles basemap when configured
+  // Switch between online OSM / Satellite / Topo and offline PMTiles basemap
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    const nextKey = `${(props.offlinePmtilesUrl || '').trim()}|${basemap}`;
+    if (baseKeyRef.current === nextKey) return;
+    baseKeyRef.current = nextKey;
+
     if (baseLayerRef.current) {
       map.removeLayer(baseLayerRef.current);
       baseLayerRef.current = null;
     }
-    const nextLayer = createBaseTileLayer(props.offlinePmtilesUrl);
+    const nextLayer = createBaseTileLayer(props.offlinePmtilesUrl, basemap);
     nextLayer.addTo(map);
     baseLayerRef.current = nextLayer;
-  }, [props.offlinePmtilesUrl]);
+  }, [props.offlinePmtilesUrl, basemap]);
 
   // Toggle operational boundaries
   useEffect(() => {
@@ -266,12 +290,37 @@ export function LeafletMap(props: LeafletMapProps) {
     props.mode === 'overview' ? props.markerStyle : null,
   ]);
 
+  const isOfflineBasemap = Boolean((props.offlinePmtilesUrl || '').trim());
+
   return (
-    <div
-      ref={containerRef}
-      className="leaflet-map-box"
-      style={{ height: props.height || '380px', width: '100%' }}
-      aria-label="แผนที่แสดงพิกัดและพื้นที่ปฏิบัติการ 3 จังหวัดชายแดนภาคใต้"
-    />
+    <div className="leaflet-wrapper">
+      {!isOfflineBasemap && (
+        <div className="basemap-switcher" role="group" aria-label="เลือกชั้นแผนที่พื้นหลัง">
+          {(
+            [
+              ['osm', 'ถนน (OSM)'],
+              ['satellite', 'ดาวเทียม'],
+              ['topo', 'ภูมิประเทศ'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={`basemap-btn ${basemap === key ? 'active' : ''}`}
+              aria-pressed={basemap === key}
+              onClick={() => setBasemap(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div
+        ref={containerRef}
+        className="leaflet-map-box"
+        style={{ height: props.height || '380px', width: '100%' }}
+        aria-label="แผนที่แสดงพิกัดและพื้นที่ปฏิบัติการ 3 จังหวัดชายแดนภาคใต้"
+      />
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
   ClipboardCopy,
@@ -7,12 +7,14 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Share2,
   TestTube2,
   Trash2,
   XCircle,
 } from 'lucide-react';
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS } from '../data/defaults';
 import type { AppSettings, GasFieldMapping } from '../types/incident';
+import { encodeConfigHash } from '../utils/configShare';
 import {
   generateGasReceiverCode,
   testGasConnection,
@@ -52,6 +54,11 @@ export function SettingsPage({ settings, onSaveSettings, onPullFromGas }: Settin
   const [pulling, setPulling] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedShareLink, setCopiedShareLink] = useState(false);
+
+  useEffect(() => {
+    setDraft(settings);
+  }, [settings]);
 
   const generatedCode = useMemo(() => generateGasReceiverCode(draft), [draft]);
 
@@ -104,6 +111,13 @@ export function SettingsPage({ settings, onSaveSettings, onPullFromGas }: Settin
     await navigator.clipboard.writeText(generatedCode);
     setCopiedCode(true);
     window.setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleCopyShareLink = async () => {
+    const url = encodeConfigHash(draft);
+    await navigator.clipboard.writeText(url);
+    setCopiedShareLink(true);
+    window.setTimeout(() => setCopiedShareLink(false), 2500);
   };
 
   return (
@@ -244,6 +258,34 @@ export function SettingsPage({ settings, onSaveSettings, onPullFromGas }: Settin
             />
             <span>ส่งข้อมูลไปยัง Google Apps Script อัตโนมัติทันทีที่กดบันทึกเหตุการณ์</span>
           </label>
+
+          <label className="checkbox-inline" style={{ marginTop: '0.4rem', display: 'flex' }}>
+            <input
+              type="checkbox"
+              checked={draft.autoPullOnLoad}
+              onChange={(e) => setDraft({ ...draft, autoPullOnLoad: e.target.checked })}
+            />
+            <span>ดึงข้อมูลล่าสุดจาก GAS อัตโนมัติทุกครั้งที่เปิดหน้าเว็บ</span>
+          </label>
+
+          <div className="share-config-bar">
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              onClick={handleCopyShareLink}
+              disabled={!draft.gasWebhookUrl.trim()}
+            >
+              <Share2 size={14} aria-hidden="true" />
+              <span>
+                {copiedShareLink
+                  ? 'คัดลอกลิงก์ตั้งค่าด่วนแล้ว!'
+                  : 'คัดลอกลิงก์ตั้งค่าด่วน (สำหรับเครื่องแผนก)'}
+              </span>
+            </button>
+            <span className="field-hint" style={{ margin: 0 }}>
+              ค่าตั้งค่าจะแนบอยู่ในส่วน #config= ฝั่งเบราว์เซอร์เท่านั้น ไม่ถูกส่งเข้าเซิร์ฟเวอร์ GitHub
+            </span>
+          </div>
 
           {testResult && (
             <div

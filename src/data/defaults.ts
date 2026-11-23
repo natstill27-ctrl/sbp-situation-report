@@ -45,6 +45,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ipbSheetName: 'สถานการณ์_3_จชต_IPB',
   legacyIncidentType: 'สถานการณ์ 3 จชต.',
   legacySendLine: false,
+  autoPullOnLoad: true,
 };
 
 /**

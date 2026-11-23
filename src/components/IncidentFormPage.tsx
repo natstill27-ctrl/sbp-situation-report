@@ -96,7 +96,11 @@ export function IncidentFormPage({
       setDistrict(editingIncident.district);
       setSubdistrict(editingIncident.subdistrict);
       setInTargetArea(editingIncident.inTargetArea);
-      setOccurredAt(editingIncident.occurredAt);
+      setOccurredAt(
+        editingIncident.occurredAt.length === 10
+          ? `${editingIncident.occurredAt}T08:00`
+          : editingIncident.occurredAt
+      );
       setCategory(editingIncident.category);
       setDetails(editingIncident.details);
       setReporter(editingIncident.reporter);
@@ -305,6 +309,8 @@ export function IncidentFormPage({
       createdAt: editingIncident?.createdAt || nowIso,
       updatedAt: nowIso,
       syncStatus: 'pending',
+      sourceSheet: editingIncident?.sourceSheet || 'local',
+      legacyRowNumber: editingIncident?.legacyRowNumber,
     };
 
     setSaving(true);

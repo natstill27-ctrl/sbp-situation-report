@@ -5,6 +5,7 @@ import {
   Database,
   Download,
   Edit3,
+  Globe,
   RefreshCw,
   Search,
   Trash2,
@@ -13,6 +14,7 @@ import type { AppSettings, IncidentRecord, SyncStatus } from '../types/incident'
 import { getCategoryColor } from '../utils/categoryColors';
 import {
   exportIncidentsToCsv,
+  exportIncidentsToKml,
   formatIncidentForLine,
   formatIncidentForPaper,
 } from '../utils/exportUtils';
@@ -178,6 +180,16 @@ export function MapAndListPage({
           >
             <Download size={16} aria-hidden="true" />
             <span>Export CSV ({filtered.length})</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={() => exportIncidentsToKml(filtered)}
+            disabled={!filtered.some((r) => r.lat !== null && r.lng !== null)}
+            title="ส่งออกจุดพิกัดเป็นไฟล์ .kml สำหรับเปิดใน Google Earth Pro"
+          >
+            <Globe size={16} aria-hidden="true" />
+            <span>Export KML</span>
           </button>
           <button type="button" className="btn btn-outline" onClick={onLoadSamples}>
             <Database size={16} aria-hidden="true" />

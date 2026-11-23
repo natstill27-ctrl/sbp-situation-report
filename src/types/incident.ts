@@ -51,6 +51,7 @@ export interface IncidentRecord {
   lastSyncAttempt?: string;
   syncError?: string;
   sourceSheet?: 'local' | 'ipb' | 'legacy';
+  legacyRowNumber?: number;
 }
 
 export interface GasFieldMapping {
@@ -88,6 +89,7 @@ export interface AppSettings {
   ipbSheetName: string;
   legacyIncidentType: string;
   legacySendLine: boolean;
+  autoPullOnLoad: boolean;
 }
 
 export interface PaperParseResult {

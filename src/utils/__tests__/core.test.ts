@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS, buildSampleIncidents } from '../../data/defaults';
+import { decodeConfigHash, encodeConfigHash } from '../configShare';
 import { latLngToUtmString, parseCoordinateInput } from '../coordinates';
-import { formatIncidentForPaper } from '../exportUtils';
+import { buildIncidentsKml, formatIncidentForPaper } from '../exportUtils';
 import { buildGasPayload, generateGasReceiverCode, parsePulledGasResponse } from '../gasSync';
 import { lookupAreaByLatLng, matchAreaByThaiNames } from '../geoLookup';
 import { extractPaperMetadata, formatThaiDateTime, fromThaiDigits, toThaiDigits } from '../thaiDate';
@@ -228,9 +229,72 @@ describe('GAS Sync Payload & Paper Formatter', () => {
     const legacyImported = pulled.records.find((r) => r.id === 'LEGACY-ROW-5');
     expect(legacyImported).toBeDefined();
     expect(legacyImported?.sourceSheet).toBe('legacy');
+    expect(legacyImported?.legacyRowNumber).toBe(5);
+    expect(legacyImported?.occurredAt).toBe('2026-10-18');
+    expect(formatThaiDateTime(legacyImported!.occurredAt)).toBe('18 ต.ค.69');
+    expect(formatThaiDateTime(legacyImported!.occurredAt)).not.toContain('เวลา');
     expect(legacyImported?.province).toBe('ปัตตานี');
     expect(legacyImported?.district).toBe('เมืองปัตตานี');
     expect(legacyImported?.category).toBe('ระเบิด');
     expect(legacyImported?.mgrs).toMatch(/^47N\s+/);
+
+    // Editing a pulled LEGACY-ROW-N record must round-trip legacyRowNumber into payload & SbpBridge
+    const editPayload = buildGasPayload(legacyImported!, DEFAULT_SETTINGS);
+    expect(editPayload.legacyRowNumber).toBe(5);
+    expect(generateGasReceiverCode(DEFAULT_SETTINGS)).toContain('data.legacyRowNumber');
+  });
+});
+
+describe('Tactical Keywords, Quick Config Share & KML Export', () => {
+  it('classifies expanded Southern Border tactical keywords accurately', () => {
+    expect(extractPaperMetadata('เกิดเหตุซุ่มโจมตีชุดลาดตระเวน', DEFAULT_CATEGORIES).category).toBe(
+      'ใช้อาวุธปืน/ลอบยิง'
+    );
+    expect(extractPaperMetadata('คนร้ายขว้างไปป์บอมบ์และยิง M79', DEFAULT_CATEGORIES).category).toBe(
+      'ระเบิด'
+    );
+    expect(extractPaperMetadata('พบการพ่นสีและแขวนป้ายผ้าก่อกวน', DEFAULT_CATEGORIES).category).toBe(
+      'ก่อกวน/โปรยตะปูเรือใบ-เผายาง'
+    );
+    expect(extractPaperMetadata('จับกุมผู้ต้องหาตามหมายจับป.วิอาญา', DEFAULT_CATEGORIES).category).toBe(
+      'ตรวจยึด/จับกุม'
+    );
+  });
+
+  it('round-trips HTTPS config share hash and rejects unsafe URLs', () => {
+    const sampleUrl = encodeConfigHash(
+      {
+        ...DEFAULT_SETTINGS,
+        gasWebhookUrl: 'https://example.com/macros/s/DEMO/exec',
+        agencyName: 'ศูนย์ข่าวทดสอบ',
+        autoPullOnLoad: false,
+      },
+      'https://example.github.io/app/'
+    );
+    expect(sampleUrl).toContain('#config=');
+
+    const decoded = decodeConfigHash(new URL(sampleUrl).hash);
+    expect(decoded).not.toBeNull();
+    expect(decoded?.gasWebhookUrl).toBe('https://example.com/macros/s/DEMO/exec');
+    expect(decoded?.agencyName).toBe('ศูนย์ข่าวทดสอบ');
+    expect(decoded?.autoPullOnLoad).toBe(false);
+
+    const badPayload = btoa(JSON.stringify({ w: 'javascript:alert(1)' }))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+    expect(decodeConfigHash(`#config=${badPayload}`)).toBeNull();
+  });
+
+  it('builds valid XML-escaped Google Earth KML for mapped incidents', () => {
+    const sample = buildSampleIncidents()[0];
+    const withXmlChars = {
+      ...sample,
+      details: 'ทดสอบ <Tag> & "Quote" ในพื้นที่',
+    };
+    const kml = buildIncidentsKml([withXmlChars]);
+    expect(kml).toContain('<kml xmlns="http://www.opengis.net/kml/2.2">');
+    expect(kml).toContain(`<coordinates>${sample.lng},${sample.lat},0</coordinates>`);
+    expect(kml).toContain('&lt;Tag&gt; &amp; &quot;Quote&quot;');
   });
 });

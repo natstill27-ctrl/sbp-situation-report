@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
   ClipboardCopy,
@@ -6,12 +6,17 @@ import {
   Database,
   Download,
   Filter,
+  ImageDown,
   Printer,
   RotateCcw,
 } from 'lucide-react';
 import type { IncidentRecord } from '../types/incident';
 import { getCategoryColor } from '../utils/categoryColors';
-import { exportIpbMatrixToCsv } from '../utils/exportUtils';
+import {
+  exportHorizontalBarsToPng,
+  exportIpbMatrixToCsv,
+  exportSvgElementToPng,
+} from '../utils/exportUtils';
 import type { GasPullResult } from '../utils/gasSync';
 import { getTargetProvinces } from '../utils/geoLookup';
 import { THAI_MONTHS_SHORT, formatThaiDateTime, toThaiDigits } from '../utils/thaiDate';
@@ -38,6 +43,7 @@ export function IpbDashboardPage({
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [pullStatus, setPullStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const monthlySvgRef = useRef<SVGSVGElement | null>(null);
 
   const provinces = useMemo(() => getTargetProvinces(), []);
 
@@ -191,6 +197,31 @@ export function IpbDashboardPage({
     setCategoryFilter('');
   };
 
+  const applyDatePreset = (preset: '7d' | '30d' | '90d' | 'fy' | 'all') => {
+    if (preset === 'all') {
+      setDateFrom('');
+      setDateTo('');
+      return;
+    }
+    const today = new Date();
+    const toYmd = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const todayStr = toYmd(today);
+
+    if (preset === 'fy') {
+      const fyStartYear = today.getMonth() >= 9 ? today.getFullYear() : today.getFullYear() - 1;
+      setDateFrom(`${fyStartYear}-10-01`);
+      setDateTo(todayStr);
+      return;
+    }
+
+    const days = preset === '7d' ? 6 : preset === '30d' ? 29 : 89;
+    const start = new Date(today);
+    start.setDate(today.getDate() - days);
+    setDateFrom(toYmd(start));
+    setDateTo(todayStr);
+  };
+
   const handlePull = async () => {
     if (!onPullFromGas) return;
     setPulling(true);
@@ -289,6 +320,11 @@ export function IpbDashboardPage({
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
             />
+            {dateFrom && (
+              <div className="cell-sub">
+                {formatThaiDateTime(dateFrom, { includeTime: false })}
+              </div>
+            )}
           </div>
           <div>
             <label htmlFor="ipb-date-to" className="sub-label">
@@ -301,6 +337,11 @@ export function IpbDashboardPage({
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
             />
+            {dateTo && (
+              <div className="cell-sub">
+                {formatThaiDateTime(dateTo, { includeTime: false })}
+              </div>
+            )}
           </div>
           <div>
             <label htmlFor="ipb-prov-filter" className="sub-label">
@@ -344,6 +385,29 @@ export function IpbDashboardPage({
               <span>ล้างตัวกรอง</span>
             </button>
           </div>
+        </div>
+        <div className="preset-btn-row" role="group" aria-label="เลือกช่วงเวลาด่วน">
+          <span className="sub-label" style={{ margin: 0 }}>
+            ช่วงเวลาด่วน:
+          </span>
+          {(
+            [
+              ['7d', '7 วันล่าสุด'],
+              ['30d', '30 วันล่าสุด'],
+              ['90d', '90 วันล่าสุด'],
+              ['fy', 'ปีงบประมาณนี้'],
+              ['all', 'ทั้งหมด'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className="btn-xs btn-outline preset-btn"
+              onClick={() => applyDatePreset(key)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -407,10 +471,29 @@ export function IpbDashboardPage({
             <div className="gov-card chart-card">
               <div className="chart-header">
                 <h3>1. แนวโน้มเหตุการณ์รายเดือน (Time Trend - IPB)</h3>
-                <span className="badge badge-info">{monthlyStats.length} เดือน</span>
+                <div className="chart-header-actions">
+                  <span className="badge badge-info">{monthlyStats.length} เดือน</span>
+                  <button
+                    type="button"
+                    className="btn-xs btn-outline no-print"
+                    onClick={() => {
+                      if (monthlySvgRef.current) {
+                        void exportSvgElementToPng(
+                          monthlySvgRef.current,
+                          `ipb-monthly-trend-${new Date().toISOString().slice(0, 10)}.png`,
+                          'แนวโน้มเหตุการณ์รายเดือน (IPB)'
+                        );
+                      }
+                    }}
+                    title="บันทึกรูปกราฟเป็น PNG สำหรับสไลด์/Paper"
+                  >
+                    <ImageDown size={13} aria-hidden="true" /> PNG
+                  </button>
+                </div>
               </div>
               <div className="svg-chart-wrap">
                 <svg
+                  ref={monthlySvgRef}
                   viewBox={`0 0 ${Math.max(420, monthlyStats.length * 78)} 230`}
                   className="svg-chart"
                   role="img"
@@ -461,7 +544,33 @@ export function IpbDashboardPage({
             <div className="gov-card chart-card">
               <div className="chart-header">
                 <h3>2. เปรียบเทียบจำนวนเหตุการณ์รายจังหวัด / พื้นที่</h3>
-                <span className="badge badge-info">รวม {filtered.length}</span>
+                <div className="chart-header-actions">
+                  <span className="badge badge-info">รวม {filtered.length}</span>
+                  <button
+                    type="button"
+                    className="btn-xs btn-outline no-print"
+                    onClick={() =>
+                      exportHorizontalBarsToPng(
+                        'เปรียบเทียบจำนวนเหตุการณ์รายจังหวัด / พื้นที่',
+                        provinceStats.map((p) => {
+                          const pct = filtered.length
+                            ? Math.round((p.count / filtered.length) * 100)
+                            : 0;
+                          return {
+                            label: p.label,
+                            value: p.count,
+                            subtitle: `${p.count} ครั้ง (${pct}%)`,
+                            color: p.color,
+                          };
+                        }),
+                        `ipb-provinces-${new Date().toISOString().slice(0, 10)}.png`
+                      )
+                    }
+                    title="บันทึกรูปกราฟเป็น PNG สำหรับสไลด์/Paper"
+                  >
+                    <ImageDown size={13} aria-hidden="true" /> PNG
+                  </button>
+                </div>
               </div>
               <div className="hbar-list">
                 {provinceStats.map((p) => {
@@ -510,7 +619,28 @@ export function IpbDashboardPage({
             <div className="gov-card chart-card full-span">
               <div className="chart-header">
                 <h3>3. สถิติจำแนกตามประเภทเหตุการณ์ (Event Pattern - IPB)</h3>
-                <span className="badge badge-info">{categoryStats.length} ประเภท</span>
+                <div className="chart-header-actions">
+                  <span className="badge badge-info">{categoryStats.length} ประเภท</span>
+                  <button
+                    type="button"
+                    className="btn-xs btn-outline no-print"
+                    onClick={() =>
+                      exportHorizontalBarsToPng(
+                        'สถิติจำแนกตามประเภทเหตุการณ์ (Event Pattern - IPB)',
+                        categoryStats.map((c) => ({
+                          label: c.category,
+                          value: c.count,
+                          subtitle: `${c.count} เหตุการณ์ (${c.pct}%)`,
+                          color: c.color,
+                        })),
+                        `ipb-categories-${new Date().toISOString().slice(0, 10)}.png`
+                      )
+                    }
+                    title="บันทึกรูปกราฟเป็น PNG สำหรับสไลด์/Paper"
+                  >
+                    <ImageDown size={13} aria-hidden="true" /> PNG
+                  </button>
+                </div>
               </div>
               <div className="category-bars-grid">
                 {categoryStats.map((c) => {

@@ -10,6 +10,7 @@ interface GovHeaderProps {
   settings: AppSettings;
   pendingSyncCount: number;
   totalIncidents: number;
+  lastPulledAt?: string | null;
   fontScale: number;
   onChangeFontScale: (next: number) => void;
   highContrast: boolean;
@@ -22,6 +23,7 @@ export function GovHeader({
   settings,
   pendingSyncCount,
   totalIncidents,
+  lastPulledAt,
   fontScale,
   onChangeFontScale,
   highContrast,
@@ -125,8 +127,9 @@ export function GovHeader({
                 {settings.gasWebhookUrl
                   ? pendingSyncCount > 0
                     ? `รอส่งเข้าระบบเดิม ${pendingSyncCount} รายการ`
-                    : 'พร้อมเชื่อมต่อ Google Apps Script'
+                    : 'เชื่อมต่อ Google Apps Script พร้อมใช้'
                   : 'ยังไม่ตั้งค่า Webhook ระบบเดิม'}
+                {lastPulledAt ? ` • ซิงก์ล่าสุด ${lastPulledAt} น.` : ''}
               </span>
             </div>
           </div>
