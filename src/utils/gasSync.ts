@@ -48,7 +48,7 @@ interface RawLegacyRow {
  */
 export function sanitizeSingleLineText(value: unknown): string {
   return String(value ?? '')
-    .replace(/\r\n?|\n/g, ' ')
+    .replace(/[\r\n\u2028\u2029\v]+/g, ' ')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
@@ -908,7 +908,7 @@ var SBP_LEGACY_TYPE = ${JSON.stringify(legacyIncidentType)};
 
 function sanitizeSbpCell_(v) {
   if (v === null || v === undefined) return '';
-  return String(v).replace(/\\r\\n?|\\n/g, ' ').replace(/[ \\t]{2,}/g, ' ').trim();
+  return String(v).replace(/[\\r\\n\\u2028\\u2029\\v]+/g, ' ').replace(/[ \\t]{2,}/g, ' ').trim();
 }
 
 function getSbpTimezone_() {
@@ -940,10 +940,11 @@ function sanitizeSheetCols_(sheet, startCol, numCols) {
     for (var c = 0; c < numCols; c++) {
       var formula = formulas[r][c];
       var val = values[r][c];
-      if (!formula && typeof val === 'string' && /[\\r\\n]/.test(val)) {
+      if (!formula && typeof val === 'string' && /[\\r\\n\\u2028\\u2029\\v]/.test(val)) {
         var next = sanitizeSbpCell_(val);
-        if (next !== val) {
-          sheet.getRange(r + 2, startCol + c).setValue(next);
+        var safeVal = next.charAt(0) === '=' ? "'" + next : next;
+        if (safeVal !== val) {
+          sheet.getRange(r + 2, startCol + c).setValue(safeVal);
           cleaned++;
         }
       }
@@ -953,26 +954,44 @@ function sanitizeSheetCols_(sheet, startCol, numCols) {
 }
 
 function sanitizeExistingSheetLineBreaks() {
-  var ss = getSbpSpreadsheet_();
-  var cleanedCells = 0;
-
-  var legacySheet = ss.getSheetByName(SBP_LEGACY_SHEET_NAME);
-  if (legacySheet) {
-    cleanedCells += sanitizeSheetCols_(legacySheet, 3, 2);
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    return { ok: false, error: 'กำลังดำเนินการทำความสะอาดข้อมูลอยู่ กรุณาลองใหม่อีกครั้ง' };
   }
+  try {
+    var ss = getSbpSpreadsheet_();
+    var legacyCleaned = 0;
+    var ipbCleaned = 0;
+    var watchCleaned = 0;
 
-  var ipbSheet = ss.getSheetByName(SBP_IPB_SHEET_NAME);
-  if (ipbSheet && ipbSheet.getLastColumn() > 0) {
-    cleanedCells += sanitizeSheetCols_(ipbSheet, 1, ipbSheet.getLastColumn());
+    var legacySheet = ss.getSheetByName(SBP_LEGACY_SHEET_NAME);
+    if (legacySheet) {
+      legacyCleaned = sanitizeSheetCols_(legacySheet, 2, 3);
+    }
+
+    var ipbSheet = ss.getSheetByName(SBP_IPB_SHEET_NAME);
+    if (ipbSheet && ipbSheet.getLastColumn() > 0) {
+      ipbCleaned = sanitizeSheetCols_(ipbSheet, 1, ipbSheet.getLastColumn());
+    }
+
+    var watchSheet = ss.getSheetByName(SBP_WATCH_SHEET_NAME);
+    if (watchSheet && watchSheet.getLastColumn() > 0) {
+      watchCleaned = sanitizeSheetCols_(watchSheet, 1, watchSheet.getLastColumn());
+    }
+
+    var cleanedCells = legacyCleaned + ipbCleaned + watchCleaned;
+    if (cleanedCells > 0) {
+      SpreadsheetApp.flush();
+    }
+    Logger.log('sanitizeExistingSheetLineBreaks cleaned cells: ' + cleanedCells);
+    return {
+      ok: true,
+      cleanedCells: cleanedCells,
+      breakdown: { legacy: legacyCleaned, ipb: ipbCleaned, watch: watchCleaned }
+    };
+  } finally {
+    lock.releaseLock();
   }
-
-  var watchSheet = ss.getSheetByName(SBP_WATCH_SHEET_NAME);
-  if (watchSheet && watchSheet.getLastColumn() > 0) {
-    cleanedCells += sanitizeSheetCols_(watchSheet, 1, watchSheet.getLastColumn());
-  }
-
-  Logger.log('sanitizeExistingSheetLineBreaks cleaned cells: ' + cleanedCells);
-  return { ok: true, cleanedCells: cleanedCells };
 }
 
 function handleUpsertWatchAlert_(data, ss) {
@@ -1033,6 +1052,10 @@ function doPost(e) {
         legacySheet: SBP_LEGACY_SHEET_NAME,
         timestamp: new Date().toISOString()
       });
+    }
+
+    if (data.action === 'sanitizeLineBreaks') {
+      return sbpJsonResponse_(sanitizeExistingSheetLineBreaks());
     }
 
     if (data.action === 'createOrUpdateWatchAlert') {

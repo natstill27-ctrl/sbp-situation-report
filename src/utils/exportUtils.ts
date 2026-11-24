@@ -3,7 +3,7 @@ import { formatThaiDateTime, formatThaiNumericDate, toThaiDigits } from './thaiD
 
 function escapeCsvCell(value: unknown): string {
   const str = String(value ?? '')
-    .replace(/\r\n?|\n/g, ' ')
+    .replace(/[\r\n\u2028\u2029\v]+/g, ' ')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
   if (/[",]/.test(str)) {

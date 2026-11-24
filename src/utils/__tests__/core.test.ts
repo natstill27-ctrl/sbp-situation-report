@@ -1238,10 +1238,10 @@ describe('Hierarchical Multi-Province Report, Area Precision & Aggregate Pull Gu
 });
 
 describe('Single-Line Sanitization for Power BI / CSV / GAS Compatibility', () => {
-  it('collapses CR/LF line breaks and extra horizontal whitespace cleanly', () => {
-    expect(sanitizeSingleLineText('บรรทัดที่ ๑\r\nบรรทัดที่ ๒\n  บรรทัดที่ ๓\t\tจบ')).toBe(
-      'บรรทัดที่ ๑ บรรทัดที่ ๒ บรรทัดที่ ๓ จบ'
-    );
+  it('collapses CR/LF and Unicode line separators cleanly', () => {
+    expect(
+      sanitizeSingleLineText('บรรทัดที่ ๑\r\nบรรทัดที่ ๒\n  บรรทัดที่ ๓\u2028ต่อสี่\u2029ต่อห้า\t\tจบ')
+    ).toBe('บรรทัดที่ ๑ บรรทัดที่ ๒ บรรทัดที่ ๓ ต่อสี่ ต่อห้า จบ');
     expect(sanitizeSingleLineText(null)).toBe('');
   });
 
@@ -1343,11 +1343,14 @@ describe('Single-Line Sanitization for Power BI / CSV / GAS Compatibility', () =
     expect(pulled.watchAlerts).toHaveLength(1);
   });
 
-  it('generates syntactically valid SbpBridge.gs with sanitizeSbpCell_ and sheet cleanup helper', () => {
+  it('generates syntactically valid SbpBridge.gs with sanitizeSbpCell_, LockService guard, and sanitizeLineBreaks action', () => {
     const bridge = generateGasReceiverCode(DEFAULT_SETTINGS);
     expect(bridge).toContain('function sanitizeSbpCell_(v)');
     expect(bridge).toContain('function sanitizeExistingSheetLineBreaks()');
-    expect(bridge).toContain('/\\r\\n?|\\n/g');
+    expect(bridge).toContain("data.action === 'sanitizeLineBreaks'");
+    expect(bridge).toContain('LockService.getScriptLock()');
+    expect(bridge).toContain('sanitizeSheetCols_(legacySheet, 2, 3)');
+    expect(bridge).toContain('/[\\r\\n\\u2028\\u2029\\v]+/g');
     expect(bridge).toContain('sanitizeSbpCell_(data["details"]');
     expect(bridge).not.toMatch(/script\.google\.com\/macros\/s\//);
 
@@ -1355,21 +1358,23 @@ describe('Single-Line Sanitization for Power BI / CSV / GAS Compatibility', () =
       v: unknown
     ) => string;
     const sanitizeSbpCell = compileSanitizer();
-    expect(sanitizeSbpCell('ส่วนแรก\r\nส่วนสอง\n  ส่วนสาม')).toBe('ส่วนแรก ส่วนสอง ส่วนสาม');
+    expect(sanitizeSbpCell('ส่วนแรก\r\nส่วนสอง\u2028ส่วนสาม\u2029  ส่วนสี่')).toBe(
+      'ส่วนแรก ส่วนสอง ส่วนสาม ส่วนสี่'
+    );
   });
 
-  it('keeps CSV exports strictly one line per incident even with embedded newlines and quotes', () => {
+  it('keeps CSV exports strictly one line per incident even with embedded newlines, Unicode separators, and quotes', () => {
     const base = buildSampleIncidents()[0];
     const multilineCsvIncident = {
       ...base,
-      details: 'เหตุทดสอบบรรทัดแรก, มีลูกน้ำ\r\nและ "อัญประกาศ"\nจบบรรทัด',
+      details: 'เหตุทดสอบบรรทัดแรก, มีลูกน้ำ\r\nและ "อัญประกาศ"\u2028ต่อ\u2029จบบรรทัด',
       reporter: 'ผู้บันทึก\nทดสอบ',
     };
 
     const csv = buildIncidentsCsv([multilineCsvIncident]);
     const lines = csv.split('\r\n');
     expect(lines).toHaveLength(2);
-    expect(lines[1]).toContain('"เหตุทดสอบบรรทัดแรก, มีลูกน้ำ และ ""อัญประกาศ"" จบบรรทัด"');
+    expect(lines[1]).toContain('"เหตุทดสอบบรรทัดแรก, มีลูกน้ำ และ ""อัญประกาศ"" ต่อ จบบรรทัด"');
     expect(lines[1]).toContain('ผู้บันทึก ทดสอบ');
   });
 });
