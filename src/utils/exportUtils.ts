@@ -2,8 +2,11 @@ import type { IncidentRecord } from '../types/incident';
 import { formatThaiDateTime, formatThaiNumericDate, toThaiDigits } from './thaiDate';
 
 function escapeCsvCell(value: unknown): string {
-  const str = String(value ?? '');
-  if (/[",\r\n]/.test(str)) {
+  const str = String(value ?? '')
+    .replace(/\r\n?|\n/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+  if (/[",]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
@@ -22,8 +25,8 @@ export function triggerCsvDownload(filename: string, csvBody: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Export incidents list to UTF-8 BOM CSV for Excel / IPB analysis. */
-export function exportIncidentsToCsv(incidents: IncidentRecord[], filenamePrefix = 'situation-report'): void {
+/** Build UTF-8 CSV body for incidents list with single-line cell sanitization. */
+export function buildIncidentsCsv(incidents: IncidentRecord[]): string {
   const headers = [
     'รหัสเหตุการณ์',
     'วัน-เวลาเกิดเหตุ (พ.ศ.)',
@@ -64,7 +67,12 @@ export function exportIncidentsToCsv(incidents: IncidentRecord[], filenamePrefix
     r.syncStatus === 'synced' ? 'ส่งแล้ว' : r.syncStatus === 'pending' ? 'รอส่ง' : 'ส่งไม่สำเร็จ',
   ]);
 
-  const csv = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+  return [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+}
+
+/** Export incidents list to UTF-8 BOM CSV for Excel / IPB analysis. */
+export function exportIncidentsToCsv(incidents: IncidentRecord[], filenamePrefix = 'situation-report'): void {
+  const csv = buildIncidentsCsv(incidents);
   const today = new Date().toISOString().slice(0, 10);
   triggerCsvDownload(`${filenamePrefix}-${today}.csv`, csv);
 }

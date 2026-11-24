@@ -2,13 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS, buildSampleIncidents } from '../../data/defaults';
 import { decodeConfigHash, encodeConfigHash } from '../configShare';
 import { latLngToUtmString, parseCoordinateInput } from '../coordinates';
-import { buildIncidentsKml, formatIncidentForLine, formatIncidentForPaper } from '../exportUtils';
+import {
+  buildIncidentsCsv,
+  buildIncidentsKml,
+  formatIncidentForLine,
+  formatIncidentForPaper,
+} from '../exportUtils';
 import {
   buildGasPayload,
   buildLegacyLocationText,
   buildWatchAlertGasPayload,
   generateGasReceiverCode,
   parsePulledGasResponse,
+  sanitizeSingleLineText,
 } from '../gasSync';
 import {
   getCenterOfArea,
@@ -1228,5 +1234,142 @@ describe('Hierarchical Multi-Province Report, Area Precision & Aggregate Pull Gu
     expect(pulled.records[0].district).toBe('สายบุรี');
     expect(pulled.records[0].lat).not.toBeNull();
     expect(pulled.records[0].lng).not.toBeNull();
+  });
+});
+
+describe('Single-Line Sanitization for Power BI / CSV / GAS Compatibility', () => {
+  it('collapses CR/LF line breaks and extra horizontal whitespace cleanly', () => {
+    expect(sanitizeSingleLineText('บรรทัดที่ ๑\r\nบรรทัดที่ ๒\n  บรรทัดที่ ๓\t\tจบ')).toBe(
+      'บรรทัดที่ ๑ บรรทัดที่ ๒ บรรทัดที่ ๓ จบ'
+    );
+    expect(sanitizeSingleLineText(null)).toBe('');
+  });
+
+  it('strips line breaks across legacy, IPB, and watch-alert GAS payloads', () => {
+    const base = buildSampleIncidents()[0];
+    const multilineRecord = {
+      ...base,
+      coordinateRaw: '6.0462,\n 101.2015',
+      details: '[ปะทะ] จว.ยะลา — บรรทัดแรกเหตุการณ์ทดสอบ\r\nบรรทัดที่สองรายละเอียดเพิ่มเติม\nบรรทัดที่สาม "อ้างอิง"',
+      reporter: 'จนท.\nทดสอบ',
+    };
+
+    const legacyLoc = buildLegacyLocationText(multilineRecord);
+    expect(legacyLoc).not.toMatch(/[\r\n]/);
+    expect(legacyLoc).toContain('บรรทัดแรกเหตุการณ์ทดสอบ บรรทัดที่สองรายละเอียดเพิ่มเติม');
+
+    const payload = buildGasPayload(multilineRecord, DEFAULT_SETTINGS);
+    const legacy = payload.legacy as Record<string, string>;
+    expect(legacy.location).not.toMatch(/[\r\n]/);
+    expect(legacy.reporter_name).toBe('จนท. ทดสอบ');
+    expect(String(payload.details)).not.toMatch(/[\r\n]/);
+    expect(String(payload.reporter)).toBe('จนท. ทดสอบ');
+    expect(String(payload.coordinateRaw)).toBe('6.0462, 101.2015');
+
+    const multilineWatch = {
+      id: 'WATCH-2569-ML1',
+      reportedAt: '2026-11-10',
+      watchStart: '2026-11-10',
+      watchEnd: '2026-11-20',
+      areas: [{ province: 'ยะลา', district: 'ธารโต' }],
+      threatType: 'ทดสอบ\nการแจ้งเตือน',
+      alertLevel: 'high' as const,
+      details: 'ข่าวสารทดสอบบรรทัดที่ ๑\r\nบรรทัดที่ ๒ พื้นที่เฝ้าระวัง อ.ธารโต จว.ยะลา',
+      reporter: 'ศปก.\r\nทดสอบ',
+      createdAt: '2026-11-10T08:00:00Z',
+      updatedAt: '2026-11-10T08:00:00Z',
+      syncStatus: 'pending' as const,
+    };
+
+    const watchPayload = buildWatchAlertGasPayload(multilineWatch, DEFAULT_SETTINGS);
+    expect(String(watchPayload.threatType)).toBe('ทดสอบ การแจ้งเตือน');
+    expect(String(watchPayload.areasText)).not.toMatch(/[\r\n]/);
+    expect(String(watchPayload.details)).not.toMatch(/[\r\n]/);
+    expect(String(watchPayload.reporter)).toBe('ศปก. ทดสอบ');
+  });
+
+  it('deduplicates multiline legacy rows against sanitized IPB and WATCH rows on pull', () => {
+    const pulled = parsePulledGasResponse(
+      {
+        ok: true,
+        ipbRows: [
+          {
+            id: 'INC-2569-ML1',
+            occurredAt: '2026-11-09T09:30',
+            lat: 6.0462,
+            lng: 101.2015,
+            province: 'ยะลา',
+            district: 'ธารโต',
+            subdistrict: 'แม่หวาด',
+            category: 'ก่อกวน/โปรยตะปูเรือใบ-เผายาง',
+            details: 'เหตุทดสอบหลายบรรทัด บรรทัดหนึ่ง บรรทัดสอง',
+            reporter: 'จนท.ทดสอบ',
+          },
+          {
+            id: 'WATCH-2569-ML2',
+            occurredAt: '2026-11-10',
+            province: 'ปัตตานี',
+            district: 'ยะรัง',
+            details: 'ข่าวสารความเคลื่อนไหวทดสอบ บรรทัดหนึ่ง บรรทัดสอง',
+            reporter: 'ศปก.ทดสอบ',
+            createdAt: '2026-11-10T08:00:00Z',
+          },
+        ],
+        legacyRows: [
+          {
+            rowNumber: 10,
+            date: '2026-11-09',
+            incident_type: DEFAULT_SETTINGS.legacyIncidentType,
+            location: '[ก่อกวน/โปรยตะปูเรือใบ-เผายาง] ต.แม่หวาด อ.ธารโต จว.ยะลา — เหตุทดสอบหลายบรรทัด\nบรรทัดหนึ่ง\r\nบรรทัดสอง',
+            reporter_name: 'จนท.ทดสอบ',
+            gps: '-',
+          },
+          {
+            rowNumber: 11,
+            date: '2026-11-10',
+            incident_type: DEFAULT_SETTINGS.legacyIncidentType,
+            location: 'ข่าวสารความเคลื่อนไหวทดสอบ\nบรรทัดหนึ่ง\nบรรทัดสอง',
+            reporter_name: 'ศปก.ทดสอบ',
+            gps: '-',
+          },
+        ],
+      },
+      DEFAULT_SETTINGS
+    );
+
+    expect(pulled.ipbCount).toBe(1);
+    expect(pulled.legacyCount).toBe(0);
+    expect(pulled.records).toHaveLength(1);
+    expect(pulled.watchAlerts).toHaveLength(1);
+  });
+
+  it('generates syntactically valid SbpBridge.gs with sanitizeSbpCell_ and sheet cleanup helper', () => {
+    const bridge = generateGasReceiverCode(DEFAULT_SETTINGS);
+    expect(bridge).toContain('function sanitizeSbpCell_(v)');
+    expect(bridge).toContain('function sanitizeExistingSheetLineBreaks()');
+    expect(bridge).toContain('/\\r\\n?|\\n/g');
+    expect(bridge).toContain('sanitizeSbpCell_(data["details"]');
+    expect(bridge).not.toMatch(/script\.google\.com\/macros\/s\//);
+
+    const compileSanitizer = new Function(`${bridge}\nreturn sanitizeSbpCell_;`) as () => (
+      v: unknown
+    ) => string;
+    const sanitizeSbpCell = compileSanitizer();
+    expect(sanitizeSbpCell('ส่วนแรก\r\nส่วนสอง\n  ส่วนสาม')).toBe('ส่วนแรก ส่วนสอง ส่วนสาม');
+  });
+
+  it('keeps CSV exports strictly one line per incident even with embedded newlines and quotes', () => {
+    const base = buildSampleIncidents()[0];
+    const multilineCsvIncident = {
+      ...base,
+      details: 'เหตุทดสอบบรรทัดแรก, มีลูกน้ำ\r\nและ "อัญประกาศ"\nจบบรรทัด',
+      reporter: 'ผู้บันทึก\nทดสอบ',
+    };
+
+    const csv = buildIncidentsCsv([multilineCsvIncident]);
+    const lines = csv.split('\r\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain('"เหตุทดสอบบรรทัดแรก, มีลูกน้ำ และ ""อัญประกาศ"" จบบรรทัด"');
+    expect(lines[1]).toContain('ผู้บันทึก ทดสอบ');
   });
 });

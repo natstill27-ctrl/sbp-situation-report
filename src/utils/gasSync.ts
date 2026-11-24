@@ -42,6 +42,17 @@ interface RawLegacyRow {
   createdAt?: string;
 }
 
+/**
+ * Flatten embedded CR/LF line breaks into single spaces so Google Sheets cells
+ * never split into corrupted rows when imported as CSV into Power BI.
+ */
+export function sanitizeSingleLineText(value: unknown): string {
+  return String(value ?? '')
+    .replace(/\r\n?|\n/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 function stripLegacyBracketPrefix(text: string): string {
   return text.replace(/^(?:\[[^\]]+\][^—\n]*—\s*)+/, '').trim();
 }
@@ -61,8 +72,8 @@ export function buildLegacyLocationText(record: IncidentRecord): string {
   const count = record.eventCount && record.eventCount > 1 ? Math.round(record.eventCount) : 1;
   const countTag = count > 1 ? ` ×${count}` : '';
   const prefix = `[${record.category}${countTag}]${area ? ` ${area}` : ''}`;
-  const details = stripLegacyBracketPrefix((record.details || '').trim());
-  return details ? `${prefix} — ${details}` : prefix;
+  const details = sanitizeSingleLineText(stripLegacyBracketPrefix((record.details || '').trim()));
+  return sanitizeSingleLineText(details ? `${prefix} — ${details}` : prefix);
 }
 
 /**
@@ -73,6 +84,7 @@ export function buildGasPayload(record: IncidentRecord, settings: AppSettings): 
   const inferredRow =
     record.legacyRowNumber ??
     (/^LEGACY-ROW-(\d+)$/.test(record.id) ? Number(record.id.replace('LEGACY-ROW-', '')) : undefined);
+  const cleanReporter = sanitizeSingleLineText(record.reporter);
   const payload: Record<string, unknown> = {
     action: 'createOrUpdateIncident',
     ipbSheetName: (settings.ipbSheetName || 'สถานการณ์_3_จชต_IPB').trim(),
@@ -82,9 +94,9 @@ export function buildGasPayload(record: IncidentRecord, settings: AppSettings): 
     legacyRowNumber: inferredRow ?? '',
     legacy: {
       date: (record.occurredAt || '').slice(0, 10),
-      incident_type: (settings.legacyIncidentType || 'สถานการณ์ 3 จชต.').trim(),
+      incident_type: sanitizeSingleLineText(settings.legacyIncidentType || 'สถานการณ์ 3 จชต.'),
       location: buildLegacyLocationText(record),
-      reporter_name: record.reporter || '-',
+      reporter_name: cleanReporter || '-',
       phone: '-',
       gps: record.lat !== null && record.lng !== null ? `${record.lat},${record.lng}` : '-',
     },
@@ -94,7 +106,7 @@ export function buildGasPayload(record: IncidentRecord, settings: AppSettings): 
     id: record.id,
     occurredAt: record.occurredAt,
     occurredAtBE: formatThaiDateTime(record.occurredAt, { shortMonth: true, thaiDigits: false }),
-    coordinateRaw: record.coordinateRaw,
+    coordinateRaw: sanitizeSingleLineText(record.coordinateRaw),
     lat: record.lat ?? '',
     lng: record.lng ?? '',
     mgrs: record.mgrs,
@@ -104,8 +116,8 @@ export function buildGasPayload(record: IncidentRecord, settings: AppSettings): 
     subdistrict: record.subdistrict,
     inTargetArea: record.inTargetArea ? 'ในพื้นที่รับผิดชอบ' : 'นอกพื้นที่รับผิดชอบ',
     category: record.category,
-    details: record.details,
-    reporter: record.reporter,
+    details: sanitizeSingleLineText(record.details),
+    reporter: cleanReporter,
     createdAt: record.createdAt,
   };
 
@@ -257,7 +269,10 @@ export function parsePulledGasResponse(
         syncStatus: 'synced',
       });
       if (legacyRowNum) watchLegacyRows.add(legacyRowNum);
-      if (details.length >= 12) watchDetailsPrefixes.push(details.slice(0, 40));
+      const normalizedWatchDetails = sanitizeSingleLineText(details);
+      if (normalizedWatchDetails.length >= 12) {
+        watchDetailsPrefixes.push(normalizedWatchDetails.slice(0, 40));
+      }
       continue;
     }
 
@@ -380,9 +395,11 @@ export function parsePulledGasResponse(
       (gpsText && gpsText !== '-' ? parseCoordinateInput(gpsText) : null) ||
       (locationText ? parseCoordinateInput(locationText) : null);
 
+    const normalizedLocationText = sanitizeSingleLineText(locationText);
     const isDuplicateWatch =
       (typeof row.rowNumber === 'number' && watchLegacyRows.has(row.rowNumber)) ||
-      (locationText && watchDetailsPrefixes.some((prefix) => locationText.includes(prefix)));
+      (normalizedLocationText &&
+        watchDetailsPrefixes.some((prefix) => normalizedLocationText.includes(prefix)));
     if (isDuplicateWatch) continue;
 
     // Deduplicate Dual-Write rows already present in ipbRows
@@ -399,11 +416,12 @@ export function parsePulledGasResponse(
         return true;
       }
       const expectedLegacyLoc = buildLegacyLocationText(ipb);
-      if (locationText && locationText === expectedLegacyLoc) return true;
+      if (normalizedLocationText && normalizedLocationText === expectedLegacyLoc) return true;
+      const normalizedIpbDetails = sanitizeSingleLineText(ipb.details);
       if (
-        locationText &&
-        ipb.details.length >= 12 &&
-        locationText.includes(ipb.details.slice(0, 40))
+        normalizedLocationText &&
+        normalizedIpbDetails.length >= 12 &&
+        normalizedLocationText.includes(normalizedIpbDetails.slice(0, 40))
       ) {
         return true;
       }
@@ -615,11 +633,11 @@ export function buildWatchAlertGasPayload(
     watchStart: alert.watchStart,
     watchEnd: alert.watchEnd,
     alertLevel: alert.alertLevel,
-    threatType: alert.threatType,
-    areasText,
+    threatType: sanitizeSingleLineText(alert.threatType),
+    areasText: sanitizeSingleLineText(areasText),
     areasJson: JSON.stringify(alert.areas),
-    details: alert.details,
-    reporter: alert.reporter,
+    details: sanitizeSingleLineText(alert.details),
+    reporter: sanitizeSingleLineText(alert.reporter),
     createdAt: alert.createdAt,
   };
 }
@@ -860,8 +878,14 @@ export function generateGasReceiverCode(settings: AppSettings): string {
   ];
   const fullHeaders = [...headers, 'legacyRowNumber'];
 
+  const singleLineKeys = new Set([m.details, m.reporter, m.coordinateRaw]);
   const rowMappingLines = headers
-    .map((h) => `      data[${JSON.stringify(h)}] !== undefined ? data[${JSON.stringify(h)}] : ''`)
+    .map((h) => {
+      const rawExpr = `data[${JSON.stringify(h)}] !== undefined ? data[${JSON.stringify(h)}] : ''`;
+      return singleLineKeys.has(h)
+        ? `      sanitizeSbpCell_(${rawExpr})`
+        : `      ${rawExpr}`;
+    })
     .join(',\n');
 
   return `/**
@@ -882,6 +906,11 @@ var SBP_WATCH_SHEET_NAME = ${JSON.stringify(watchSheetName)};
 var SBP_LEGACY_SHEET_NAME = ${JSON.stringify(legacySheetName)};
 var SBP_LEGACY_TYPE = ${JSON.stringify(legacyIncidentType)};
 
+function sanitizeSbpCell_(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).replace(/\\r\\n?|\\n/g, ' ').replace(/[ \\t]{2,}/g, ' ').trim();
+}
+
 function getSbpTimezone_() {
   try {
     if (typeof TIMEZONE !== 'undefined' && TIMEZONE) {
@@ -900,6 +929,52 @@ function getSbpSpreadsheet_() {
   return SpreadsheetApp.getActiveSpreadsheet();
 }
 
+function sanitizeSheetCols_(sheet, startCol, numCols) {
+  if (!sheet || sheet.getLastRow() <= 1) return 0;
+  var lastRow = sheet.getLastRow();
+  var range = sheet.getRange(2, startCol, lastRow - 1, numCols);
+  var values = range.getValues();
+  var formulas = range.getFormulas();
+  var cleaned = 0;
+  for (var r = 0; r < values.length; r++) {
+    for (var c = 0; c < numCols; c++) {
+      var formula = formulas[r][c];
+      var val = values[r][c];
+      if (!formula && typeof val === 'string' && /[\\r\\n]/.test(val)) {
+        var next = sanitizeSbpCell_(val);
+        if (next !== val) {
+          sheet.getRange(r + 2, startCol + c).setValue(next);
+          cleaned++;
+        }
+      }
+    }
+  }
+  return cleaned;
+}
+
+function sanitizeExistingSheetLineBreaks() {
+  var ss = getSbpSpreadsheet_();
+  var cleanedCells = 0;
+
+  var legacySheet = ss.getSheetByName(SBP_LEGACY_SHEET_NAME);
+  if (legacySheet) {
+    cleanedCells += sanitizeSheetCols_(legacySheet, 3, 2);
+  }
+
+  var ipbSheet = ss.getSheetByName(SBP_IPB_SHEET_NAME);
+  if (ipbSheet && ipbSheet.getLastColumn() > 0) {
+    cleanedCells += sanitizeSheetCols_(ipbSheet, 1, ipbSheet.getLastColumn());
+  }
+
+  var watchSheet = ss.getSheetByName(SBP_WATCH_SHEET_NAME);
+  if (watchSheet && watchSheet.getLastColumn() > 0) {
+    cleanedCells += sanitizeSheetCols_(watchSheet, 1, watchSheet.getLastColumn());
+  }
+
+  Logger.log('sanitizeExistingSheetLineBreaks cleaned cells: ' + cleanedCells);
+  return { ok: true, cleanedCells: cleanedCells };
+}
+
 function handleUpsertWatchAlert_(data, ss) {
   var watchName = String(data.watchSheetName || SBP_WATCH_SHEET_NAME);
   var sheet = ss.getSheetByName(watchName) || ss.insertSheet(watchName);
@@ -914,11 +989,11 @@ function handleUpsertWatchAlert_(data, ss) {
     data.watchStart || '',
     data.watchEnd || '',
     data.alertLevel || 'medium',
-    data.threatType || '',
-    data.areasText || '',
+    sanitizeSbpCell_(data.threatType || ''),
+    sanitizeSbpCell_(data.areasText || ''),
     data.areasJson || '[]',
-    data.details || '',
-    data.reporter || '-',
+    sanitizeSbpCell_(data.details || ''),
+    sanitizeSbpCell_(data.reporter || '') || '-',
     data.createdAt || new Date().toISOString()
   ];
   var targetRow = -1;
@@ -1017,9 +1092,9 @@ function doPost(e) {
       var dp = incidentDateText.split('-');
       var incidentDate = new Date(Number(dp[0]), Number(dp[1]) - 1, Number(dp[2]), 0, 0, 0);
       var legacyObj = data.legacy || {};
-      var legacyType = String(legacyObj.incident_type || SBP_LEGACY_TYPE);
-      var legacyLocation = String(legacyObj.location || data[${JSON.stringify(m.details)}] || '-');
-      var legacyReporter = String(legacyObj.reporter_name || data[${JSON.stringify(m.reporter)}] || '-');
+      var legacyType = sanitizeSbpCell_(legacyObj.incident_type || SBP_LEGACY_TYPE);
+      var legacyLocation = sanitizeSbpCell_(legacyObj.location || data[${JSON.stringify(m.details)}] || '') || '-';
+      var legacyReporter = sanitizeSbpCell_(legacyObj.reporter_name || data[${JSON.stringify(m.reporter)}] || '') || '-';
       var legacyPhone = String(legacyObj.phone || '-');
       var legacyGps = String(legacyObj.gps || '-');
       var createdAt = new Date();
