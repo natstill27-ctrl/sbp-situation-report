@@ -21,7 +21,6 @@ import {
   testDailyLogGasConnection,
 } from '../utils/dailyLogGasSync';
 import {
-  generateGasReceiverCode,
   testGasConnection,
   type GasPullResult,
 } from '../utils/gasSync';
@@ -69,7 +68,6 @@ export function SettingsPage({
   const [dailyTestResult, setDailyTestResult] = useState<{ ok: boolean; message: string } | null>(
     null
   );
-  const [copiedCode, setCopiedCode] = useState(false);
   const [copiedDailyCode, setCopiedDailyCode] = useState(false);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
 
@@ -77,7 +75,6 @@ export function SettingsPage({
     setDraft(settings);
   }, [settings]);
 
-  const generatedCode = useMemo(() => generateGasReceiverCode(draft), [draft]);
   const generatedDailyLogCode = useMemo(() => generateDailyLogGasCode(draft), [draft]);
 
   const handleTestDailyLog = async () => {
@@ -153,12 +150,6 @@ export function SettingsPage({
       ...prev,
       categories: prev.categories.filter((c) => c !== cat),
     }));
-  };
-
-  const handleCopyCode = async () => {
-    await navigator.clipboard.writeText(generatedCode);
-    setCopiedCode(true);
-    window.setTimeout(() => setCopiedCode(false), 2000);
   };
 
   const handleCopyShareLink = async () => {
@@ -621,30 +612,6 @@ export function SettingsPage({
           </button>
         </div>
       </form>
-
-      {/* 5. Ready-to-Paste GAS Bridge Code */}
-      <div className="gov-card" style={{ marginTop: '1.5rem' }}>
-        <div className="card-header-row">
-          <div>
-            <h3 className="card-title">
-              <Code2 size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} aria-hidden="true" />
-              โค้ด Google Apps Script ฝั่งเชื่อมต่อ (SbpBridge.gs) พร้อมใช้งาน
-            </h3>
-            <p className="card-subtitle">
-              สร้างไฟล์สคริปต์ชื่อ <code>SbpBridge.gs</code> ในโปรเจกต์ GAS เดิม แล้วเพิ่มเงื่อนไข{' '}
-              <code>if (page == &quot;json&quot;) return exportSbpJson(e);</code> และ{' '}
-              <code>if (page == &quot;news&quot;) return exportWing56NewsJson(e);</code> ใน <code>doGet(e)</code> เดิม จากนั้น Deploy เป็นเวอร์ชันใหม่
-            </p>
-          </div>
-          <button type="button" className="btn btn-outline" onClick={handleCopyCode}>
-            <ClipboardCopy size={16} aria-hidden="true" />
-            <span>{copiedCode ? 'คัดลอกโค้ดแล้ว!' : 'คัดลอกโค้ด SbpBridge.gs'}</span>
-          </button>
-        </div>
-        <pre className="code-block">
-          <code>{generatedCode}</code>
-        </pre>
-      </div>
 
       {/* 6. Ready-to-Paste Wing56DailyLog.gs Code */}
       <div className="gov-card" style={{ marginTop: '1.5rem' }}>
