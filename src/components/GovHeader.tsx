@@ -1,9 +1,12 @@
 import {
   BarChart3,
+  BookOpen,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
   FilePlus2,
+  Home,
+  Map as MapIcon,
   Menu,
   Newspaper,
   Settings,
@@ -12,8 +15,18 @@ import {
 } from 'lucide-react';
 import type { AppSettings } from '../types/incident';
 import { formatThaiDateTime } from '../utils/thaiDate';
+import type { ComplianceModalTab } from './GovComplianceModal';
 
 export type ActiveTab = 'news-hub' | 'entry' | 'ipb' | 'map-list' | 'settings';
+export type FontSizeMode = 'sm' | 'md' | 'lg';
+
+export const TAB_BREADCRUMBS: Record<ActiveTab, { group: string; title: string }> = {
+  'news-hub': { group: 'ศูนย์ข่าวสาร', title: 'ศูนย์ข่าวกรองรายวัน' },
+  entry: { group: 'ปฏิบัติการ IPB', title: 'บันทึกเหตุการณ์' },
+  ipb: { group: 'ปฏิบัติการ IPB', title: 'แดชบอร์ด & แผนที่ IPB' },
+  'map-list': { group: 'ปฏิบัติการ IPB', title: 'คลังรายการเหตุการณ์' },
+  settings: { group: 'ระบบ', title: 'ตั้งค่า & เชื่อมระบบเดิม' },
+};
 
 const TOPBAR_TITLES: Record<ActiveTab, string> = {
   'news-hub': 'ศูนย์ข่าวกรองรายวัน (7 หมวดข่าว • 7 จังหวัดภาคใต้ตอนล่าง)',
@@ -26,6 +39,8 @@ const TOPBAR_TITLES: Record<ActiveTab, string> = {
 interface SidebarProps {
   activeTab: ActiveTab;
   onChangeTab: (tab: ActiveTab) => void;
+  onGoHome: () => void;
+  onOpenComplianceModal?: (modal: ComplianceModalTab) => void;
   settings: AppSettings;
   pendingSyncCount: number;
   totalIncidents: number;
@@ -38,6 +53,8 @@ interface SidebarProps {
 export function W56Sidebar({
   activeTab,
   onChangeTab,
+  onGoHome,
+  onOpenComplianceModal,
   settings,
   pendingSyncCount,
   totalIncidents,
@@ -111,7 +128,16 @@ export function W56Sidebar({
         className={`w56-sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}
       >
         <div className="w56-sidebar-brand">
-          <div className="w56-brand-left">
+          <button
+            type="button"
+            className="w56-brand-left w56-brand-btn"
+            onClick={() => {
+              onGoHome();
+              onCloseMobile();
+            }}
+            aria-label="กลับหน้าหลัก ศูนย์ข่าวกรองรายวัน"
+            title="กลับหน้าหลัก ศูนย์ข่าวกรองรายวัน"
+          >
             <div className="w56-brand-emblem" aria-hidden="true">
               <Shield size={20} />
             </div>
@@ -121,7 +147,7 @@ export function W56Sidebar({
                 <span className="w56-brand-unit">ผขว.บก.บน.56</span>
               </div>
             )}
-          </div>
+          </button>
           <button
             type="button"
             className="w56-mobile-close"
@@ -177,6 +203,36 @@ export function W56Sidebar({
               <span className="w56-unit-text">7 จว. ภาคใต้ตอนล่าง</span>
             </div>
           )}
+          {onOpenComplianceModal && (
+            <div className={`w56-sidebar-util-row ${collapsed ? 'compact' : ''}`}>
+              <button
+                type="button"
+                className="w56-sidebar-util-btn"
+                onClick={() => {
+                  onOpenComplianceModal('sitemap');
+                  onCloseMobile();
+                }}
+                aria-label="เปิดผังเว็บไซต์ (Sitemap)"
+                title="ผังเว็บไซต์ (Sitemap)"
+              >
+                <MapIcon size={14} aria-hidden="true" />
+                {!collapsed && <span>ผังเว็บ</span>}
+              </button>
+              <button
+                type="button"
+                className="w56-sidebar-util-btn"
+                onClick={() => {
+                  onOpenComplianceModal('faq');
+                  onCloseMobile();
+                }}
+                aria-label="เปิดคู่มือการใช้งานและคำถามที่พบบ่อย"
+                title="คู่มือ & คำถามที่พบบ่อย (FAQ)"
+              >
+                <BookOpen size={14} aria-hidden="true" />
+                {!collapsed && <span>คู่มือ/FAQ</span>}
+              </button>
+            </div>
+          )}
           <button
             type="button"
             className="w56-collapse-btn"
@@ -205,8 +261,8 @@ interface GovHeaderProps {
   lastPulledAt?: string | null;
   themeDark: boolean;
   onToggleTheme: () => void;
-  fontLarge: boolean;
-  onToggleFontLarge: () => void;
+  fontSizeMode: FontSizeMode;
+  onChangeFontSize: (mode: FontSizeMode) => void;
   highContrast: boolean;
   onToggleHighContrast: () => void;
   onOpenMobileSidebar: () => void;
@@ -219,8 +275,8 @@ export function GovHeader({
   lastPulledAt,
   themeDark,
   onToggleTheme,
-  fontLarge,
-  onToggleFontLarge,
+  fontSizeMode,
+  onChangeFontSize,
   highContrast,
   onToggleHighContrast,
   onOpenMobileSidebar,
@@ -261,15 +317,38 @@ export function GovHeader({
           <span>{themeDark ? '☀ โหมดสว่าง' : '☾ โหมดมืด'}</span>
         </button>
 
-        <button
-          type="button"
-          className={`w56-ctl-btn ${fontLarge ? 'active-primary' : ''}`}
-          onClick={onToggleFontLarge}
-          aria-pressed={fontLarge}
-          aria-label={fontLarge ? 'กลับเป็นอักษรขนาดปกติ' : 'เปลี่ยนเป็นอักษรใหญ่ สบายตา'}
-        >
-          <span>ก+{fontLarge ? ' อักษรใหญ่ (เปิด)' : ' อักษรใหญ่'}</span>
-        </button>
+        <div className="w56-font-group" role="group" aria-label="ปรับขนาดตัวอักษร 3 ระดับ">
+          <button
+            type="button"
+            className={`w56-font-btn ${fontSizeMode === 'sm' ? 'active-primary' : ''}`}
+            onClick={() => onChangeFontSize('sm')}
+            aria-pressed={fontSizeMode === 'sm'}
+            aria-label="ลดขนาดตัวอักษร (ก-)"
+            title="ลดขนาดตัวอักษร"
+          >
+            ก-
+          </button>
+          <button
+            type="button"
+            className={`w56-font-btn ${fontSizeMode === 'md' ? 'active-primary' : ''}`}
+            onClick={() => onChangeFontSize('md')}
+            aria-pressed={fontSizeMode === 'md'}
+            aria-label="ขนาดตัวอักษรปกติ (ก)"
+            title="ขนาดตัวอักษรปกติ"
+          >
+            ก
+          </button>
+          <button
+            type="button"
+            className={`w56-font-btn ${fontSizeMode === 'lg' ? 'active-primary' : ''}`}
+            onClick={() => onChangeFontSize('lg')}
+            aria-pressed={fontSizeMode === 'lg'}
+            aria-label="เพิ่มขนาดตัวอักษร (ก+)"
+            title="เพิ่มขนาดตัวอักษร"
+          >
+            ก+
+          </button>
+        </div>
 
         <button
           type="button"
@@ -306,5 +385,46 @@ export function GovHeader({
         </span>
       </div>
     </header>
+  );
+}
+
+interface GovBreadcrumbProps {
+  activeTab: ActiveTab;
+  onGoHome: () => void;
+}
+
+export function GovBreadcrumb({ activeTab, onGoHome }: GovBreadcrumbProps) {
+  const crumb = TAB_BREADCRUMBS[activeTab];
+
+  return (
+    <nav className="w56-breadcrumb" aria-label="เส้นนำทางเว็บไซต์ (Breadcrumb)">
+      <ol className="w56-breadcrumb-list">
+        <li>
+          <button
+            type="button"
+            className="w56-crumb-link"
+            onClick={onGoHome}
+            aria-label="กลับหน้าหลัก ศูนย์ข่าวกรองรายวัน"
+          >
+            <Home size={13} aria-hidden="true" />
+            <span>หน้าหลัก</span>
+          </button>
+        </li>
+        <li className="w56-crumb-sep" aria-hidden="true">
+          &gt;
+        </li>
+        <li>
+          <span className="w56-crumb-group">{crumb.group}</span>
+        </li>
+        <li className="w56-crumb-sep" aria-hidden="true">
+          &gt;
+        </li>
+        <li>
+          <span className="w56-crumb-current" aria-current="page">
+            {crumb.title}
+          </span>
+        </li>
+      </ol>
+    </nav>
   );
 }

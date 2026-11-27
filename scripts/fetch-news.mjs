@@ -6,6 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const RULES_PATH = path.join(ROOT, 'src', 'data', 'newsRules.json');
 const OUTPUT_PATH = path.join(ROOT, 'public', 'daily-news.json');
+const RSS_OUTPUT_PATH = path.join(ROOT, 'public', 'daily-news.xml');
 
 const WINDOW_HOURS = 168;
 
@@ -418,24 +419,86 @@ async function main() {
   accepted.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
   stats.acceptedCount = accepted.length;
 
+  const feedPayload = {
+    generatedAt: new Date(nowMs).toISOString(),
+    windowHours: WINDOW_HOURS,
+    items: accepted,
+    stats,
+    sourceMode: 'static',
+  };
+
   await fs.mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
-  await fs.writeFile(
-    OUTPUT_PATH,
-    JSON.stringify(
-      {
-        generatedAt: new Date(nowMs).toISOString(),
-        windowHours: WINDOW_HOURS,
-        items: accepted,
-        stats,
-        sourceMode: 'static',
-      },
-      null,
-      2
-    ),
-    'utf8'
-  );
+  await fs.writeFile(OUTPUT_PATH, JSON.stringify(feedPayload, null, 2), 'utf8');
+  await fs.writeFile(RSS_OUTPUT_PATH, buildRss2Xml(feedPayload), 'utf8');
 
   console.log('Curated daily news summary:', stats);
+  console.log(`Generated RSS 2.0 XML feed (${accepted.length} items): ${RSS_OUTPUT_PATH}`);
+}
+
+const RSS_CATEGORY_LABELS = {
+  politics: 'การเมือง',
+  economy: 'เศรษฐกิจ',
+  social: 'สังคมและประชาคม',
+  narcotics: 'ยาเสพติด',
+  security: 'ความมั่นคงและเหตุรุนแรง',
+  weather: 'พยากรณ์อากาศ/เฝ้าระวังภัยพิบัติ',
+  migrant: 'แรงงานต่างด้าว/หลบหนีเข้าเมืองผิดกฎหมาย',
+};
+
+function escapeXml(value) {
+  return String(value ?? '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function buildRss2Xml(feed) {
+  const siteUrl = 'https://wing56-intel.local/';
+  const buildDate = new Date(feed.generatedAt || Date.now()).toUTCString();
+  const itemsXml = (feed.items || [])
+    .map((item) => {
+      const catLabel = RSS_CATEGORY_LABELS[item.category] || item.category || 'ข่าวกรอง';
+      const provText = Array.isArray(item.provinces)
+        ? item.provinces.map((p) => `จ.${p}`).join(', ')
+        : 'ภาคใต้ตอนล่าง';
+      const pubDate = Number.isNaN(new Date(item.publishedAt).getTime())
+        ? buildDate
+        : new Date(item.publishedAt).toUTCString();
+      const desc = `${item.summary || item.title} (แหล่งข่าว: ${item.sourceName} | พื้นที่: ${provText})`;
+      return [
+        '    <item>',
+        `      <title>${escapeXml(item.title)}</title>`,
+        `      <link>${escapeXml(item.link)}</link>`,
+        `      <guid isPermaLink="false">${escapeXml(item.id)}</guid>`,
+        `      <pubDate>${escapeXml(pubDate)}</pubDate>`,
+        `      <category>${escapeXml(catLabel)}</category>`,
+        `      <description>${escapeXml(desc)}</description>`,
+        '    </item>',
+      ].join('\n');
+    })
+    .join('\n');
+
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
+    '  <channel>',
+    '    <title>ศูนย์ข่าวกรองรายวัน ผขว.บก.บน.56 (7 จังหวัดภาคใต้ตอนล่าง)</title>',
+    `    <link>${escapeXml(siteUrl)}</link>`,
+    `    <atom:link href="${escapeXml(`${siteUrl}daily-news.xml`)}" rel="self" type="application/rss+xml" />`,
+    '    <description>ฟีดข่าวกรองสาธารณะคัดกรอง 7 หมวดข่าว ครอบคลุมพื้นที่รับผิดชอบ กองบิน 56 ตามมาตรฐานเว็บไซต์ภาครัฐ มสพร. 11-2566</description>',
+    '    <language>th</language>',
+    `    <lastBuildDate>${escapeXml(buildDate)}</lastBuildDate>`,
+    '    <generator>Wing 56 Intelligence Service Center RSS 2.0 Generator</generator>',
+    itemsXml,
+    '  </channel>',
+    '</rss>',
+    '',
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
 }
 
 main().catch((err) => {

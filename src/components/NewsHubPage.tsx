@@ -11,6 +11,7 @@ import {
   ListChecks,
   Newspaper,
   RefreshCw,
+  Rss,
   Search,
   ShieldCheck,
   Sparkles,
@@ -42,6 +43,8 @@ import { formatThaiDateTime } from '../utils/thaiDate';
 
 interface NewsHubPageProps {
   settings: AppSettings;
+  requestedCategory?: 'all' | NewsCategoryId | null;
+  onConsumeRequestedCategory?: () => void;
   onImportToIncident: (draft: NewsToIncidentDraft) => void;
 }
 
@@ -56,7 +59,12 @@ function formatRelativeAge(isoString: string, nowMs: number): string {
   return `${diffDay} วันที่แล้ว`;
 }
 
-export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) {
+export function NewsHubPage({
+  settings,
+  requestedCategory,
+  onConsumeRequestedCategory,
+  onImportToIncident,
+}: NewsHubPageProps) {
   const [feed, setFeed] = useState<DailyNewsFeed | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,6 +83,13 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
   const provinces = useMemo(() => getTargetProvinces(), []);
   const vettedSources = useMemo(() => getVettedSourcesSummary(), []);
   const hasGasUrl = Boolean((settings.gasFetchUrl || settings.gasWebhookUrl).trim());
+
+  useEffect(() => {
+    if (requestedCategory) {
+      setCategoryFilter(requestedCategory);
+      onConsumeRequestedCategory?.();
+    }
+  }, [requestedCategory, onConsumeRequestedCategory]);
 
   const loadNews = async (opts: { preferLiveGas?: boolean; bustCache?: boolean } = {}) => {
     setLoadError('');
@@ -231,6 +246,17 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
               <Clock size={14} aria-hidden="true" />
               <span>อัปเดตล่าสุด: {generatedLabel}</span>
             </span>
+            <a
+              href="./daily-news.xml"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-outline"
+              aria-label="เปิดฟีดข่าวมาตรฐาน RSS 2.0 (XML)"
+              title="ฟีดข่าวมาตรฐาน RSS 2.0 (มสพร. 11-2566)"
+            >
+              <Rss size={16} aria-hidden="true" />
+              <span>RSS 2.0</span>
+            </a>
             <button
               type="button"
               className="btn btn-primary"

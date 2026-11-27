@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-27T13:52:49.778Z",
+  "generatedAt": "2026-11-27T14:06:30.175Z",
   "windowHours": 168,
   "items": [
     {
@@ -43,20 +43,6 @@
         "ยะลา"
       ],
       "score": 9
-    },
-    {
-      "id": "NEWS-9QM8PZ",
-      "category": "weather",
-      "title": "อุตุฯ นราธิวาส เตือนภาคใต้ฝั่งตะวันออกมีฝนเพิ่มขึ้น ระหว่างวันที่ 28–30 พฤศจิกายนนี้ ขณะที่จังหวัดนราธิวาสมีฝนฟ้าคะนองหลายพื้นที่ ขอประชาชนเฝ้าระวังฝนตกหนักและน้ำท่วมฉับพลัน",
-      "summary": "อุตุฯ นราธิวาส เตือนภาคใต้ฝั่งตะวันออกมีฝนเพิ่มขึ้น ระหว่างวันที่ 28–30 พฤศจิกายนนี้ ขณะที่จังหวัดนราธิวาสมีฝนฟ้าคะนองหลายพื้นที่ ขอประชาชนเฝ้าระวังฝนตกหนักและน้ำท่วมฉับพลัน",
-      "link": "https://news.google.com/rss/articles/CBMib0FVX3lxTE96LXVEclJqUTQ0dnRtYk16VFU4cUZ5YjFLVG4xbkp5cUR6dDg5bUVSUWhLTEJiX1F5N0EzUzBxbnd4ZmdMYW12LW1sR0VvOVlBR1p6VmsyQy1oUDhfbkVNVzczazdaU2tpc2xRMnBOWQ?oc=5",
-      "sourceName": "NBT CONNEXT",
-      "sourceTier": "official-public",
-      "publishedAt": "2026-11-27T09:00:47.000Z",
-      "provinces": [
-        "นราธิวาส"
-      ],
-      "score": 29
     },
     {
       "id": "NEWS-1DSJCK8",
@@ -197,7 +183,7 @@
       "link": "https://news.google.com/rss/articles/CBMiWkFVX3lxTFA2eXR6YlFwVi14RGhQdElVVXdBdWd3UHVoWGdfMDVhT1dJVm1FVnRtSmxNQkZGQzluc25HS1BONWlGTE5qa3pPR25Oc0I4bEctZVk5N1RQWi1GQQ?oc=5",
       "sourceName": "HATYAI FOCUS",
       "sourceTier": "local-neutral",
-      "publishedAt": "2026-11-27T01:59:01.000Z",
+      "publishedAt": "2026-11-27T01:58:32.000Z",
       "provinces": [
         "สงขลา"
       ],
@@ -593,13 +579,13 @@
     }
   ],
   "stats": {
-    "totalChecked": 319,
-    "acceptedCount": 41,
-    "excludedDramaCount": 43,
-    "excludedSourceCount": 105,
+    "totalChecked": 351,
+    "acceptedCount": 40,
+    "excludedDramaCount": 47,
+    "excludedSourceCount": 130,
     "excludedStaleCount": 11,
-    "excludedOutOfAreaCount": 112,
-    "excludedDuplicateCount": 7
+    "excludedOutOfAreaCount": 113,
+    "excludedDuplicateCount": 10
   },
   "sourceMode": "static"
 }

@@ -118,6 +118,7 @@ export function IncidentFormPage({
 
   const [showBoundaries, setShowBoundaries] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [formError, setFormError] = useState('');
   const [paperNotice, setPaperNotice] = useState('');
   const [multiOffer, setMultiOffer] = useState<MultiAreaParseResult | null>(null);
@@ -209,6 +210,7 @@ export function IncidentFormPage({
       setAreaAutoNote('');
       setCoordError('');
       setFormError('');
+      setSubmitAttempted(false);
     }
   }, [editingIncident]);
 
@@ -221,6 +223,7 @@ export function IncidentFormPage({
     setParsedCoord(null);
     setCoordError('');
     setFormError('');
+    setSubmitAttempted(false);
 
     const bkkDate = new Date(new Date(newsDraft.publishedAt).getTime() + 7 * 60 * 60 * 1000);
     if (!Number.isNaN(bkkDate.getTime())) {
@@ -820,6 +823,7 @@ export function IncidentFormPage({
     setEventCount(1);
     setDetails('');
     setFormError('');
+    setSubmitAttempted(false);
     setPaperNotice('');
     setMultiOffer(null);
     if (editingIncident) onCancelEdit();
@@ -828,6 +832,7 @@ export function IncidentFormPage({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
+    setSubmitAttempted(true);
 
     if (!parsedCoord && !coordinateRaw.trim()) {
       setFormError('กรุณากรอกพิกัด หรือคลิกเลือกตำแหน่งบนแผนที่');
@@ -850,6 +855,7 @@ export function IncidentFormPage({
       setFormError('กรุณาระบุชื่อผู้บันทึกเหตุการณ์');
       return;
     }
+    setSubmitAttempted(false);
 
     const nowIso = new Date().toISOString();
     const recordId =
@@ -1324,18 +1330,28 @@ export function IncidentFormPage({
               <input
                 id="coord-input"
                 type="text"
-                className="form-input"
+                className={`form-input ${
+                  coordError || (submitAttempted && !parsedCoord && !coordinateRaw.trim())
+                    ? 'is-error'
+                    : parsedCoord
+                      ? 'is-valid'
+                      : ''
+                }`}
                 value={coordinateRaw}
                 onChange={(e) => handleCoordinateChange(e.target.value)}
                 placeholder="วาง Lat/Lng, MGRS (47N QH ...), UTM (47N ...), DMS หรือลิงก์ Google Maps"
                 autoComplete="off"
+                aria-invalid={
+                  Boolean(coordError) || (submitAttempted && !parsedCoord && !coordinateRaw.trim())
+                }
+                aria-describedby={coordError ? 'coord-error-msg' : 'coord-hint'}
               />
-              <p className="field-hint">
+              <p id="coord-hint" className="field-hint">
                 ตัวอย่าง: <code>6.0462, 101.2015</code> หรือ <code>47N QH 43764 68514</code> หรือลิงก์ Google Maps
               </p>
 
               {coordError && (
-                <div className="inline-alert warn" role="alert">
+                <div id="coord-error-msg" className="inline-alert warn" role="alert">
                   <AlertTriangle size={16} aria-hidden="true" />
                   <span>{coordError}</span>
                 </div>
@@ -1346,7 +1362,7 @@ export function IncidentFormPage({
                   <div className="coord-badge-row">
                     <span className="badge badge-info">ตรวจพบ: {FORMAT_LABELS[parsedCoord.format]}</span>
                     <span className={`badge ${inTargetArea ? 'badge-success' : 'badge-warn'}`}>
-                      {inTargetArea ? 'อยู่ในพื้นที่ 3 จว. + 4 อ.สงขลา' : 'อยู่นอกเขตพื้นที่หลัก'}
+                      {inTargetArea ? 'อยู่ในพื้นที่รับผิดชอบ 7 จว.ภาคใต้ตอนล่าง' : 'อยู่นอกเขตพื้นที่หลัก'}
                     </span>
                   </div>
                   <div className="coord-grid-values">
@@ -1401,7 +1417,7 @@ export function IncidentFormPage({
                       setInTargetArea(Boolean(val));
                     }}
                   >
-                    <option value="">-- เลือกจังหวัด --</option>
+                    <option value="">-- โปรดเลือกจังหวัด --</option>
                     {provinces.map((p) => (
                       <option key={p} value={p}>
                         {p}
@@ -1426,7 +1442,7 @@ export function IncidentFormPage({
                         setSubdistrict('');
                       }}
                     >
-                      <option value="">-- เลือกอำเภอ --</option>
+                      <option value="">-- โปรดเลือกอำเภอ --</option>
                       {districts.map((d) => (
                         <option key={d} value={d}>
                           {d}
@@ -1455,7 +1471,7 @@ export function IncidentFormPage({
                       value={subdistrict}
                       onChange={(e) => setSubdistrict(e.target.value)}
                     >
-                      <option value="">-- เลือกตำบล --</option>
+                      <option value="">-- โปรดเลือกตำบล --</option>
                       {subdistricts.map((s) => (
                         <option key={s} value={s}>
                           {s}
@@ -1491,10 +1507,11 @@ export function IncidentFormPage({
                 <input
                   id="occurred-at"
                   type="datetime-local"
-                  className="form-input"
+                  className={`form-input ${submitAttempted && !occurredAt ? 'is-error' : ''}`}
                   value={occurredAt}
                   max={`${getCurrentLocalDateTimeInput().slice(0, 10)}T23:59`}
                   onChange={(e) => setOccurredAt(e.target.value)}
+                  aria-invalid={submitAttempted && !occurredAt}
                   required
                 />
                 <p className="field-hint">
@@ -1557,11 +1574,12 @@ export function IncidentFormPage({
               </div>
               <textarea
                 id="details-input"
-                className="form-textarea"
+                className={`form-textarea ${submitAttempted && !details.trim() ? 'is-error' : ''}`}
                 rows={5}
                 value={details}
                 onChange={(e) => setDetails(e.target.value)}
                 placeholder="กรอกรายละเอียดเหตุการณ์ หรือวางข้อความรายงาน Paper (เช่น เมื่อ ๙ พ.ย.๖๙ ... ต.แม่หวาด อ.ธารโต จว.ยะลา ...)"
+                aria-invalid={submitAttempted && !details.trim()}
                 required
               />
               {paperNotice && (
@@ -1596,10 +1614,11 @@ export function IncidentFormPage({
               <input
                 id="reporter-input"
                 type="text"
-                className="form-input"
+                className={`form-input ${submitAttempted && !reporter.trim() ? 'is-error' : ''}`}
                 value={reporter}
                 onChange={(e) => setReporter(e.target.value)}
                 placeholder="ระบุชื่อ-นามสกุล / ตำแหน่ง หรือหน่วยงานผู้บันทึก"
+                aria-invalid={submitAttempted && !reporter.trim()}
                 required
               />
             </div>
@@ -2076,10 +2095,11 @@ export function IncidentFormPage({
                 </div>
                 <textarea
                   id="watch-raw-input"
-                  className="form-textarea"
+                  className={`form-textarea ${watchError && !watchRawText.trim() ? 'is-error' : ''}`}
                   rows={5}
                   value={watchRawText}
                   onChange={(e) => setWatchRawText(e.target.value)}
+                  aria-invalid={Boolean(watchError && !watchRawText.trim())}
                   placeholder="วางข้อความข่าวกรองแจ้งเตือน เช่น เมื่อ ๕ มี.ค.๖๘ ปรากฏข่าวสารเตรียมก่อเหตุ ... พื้นที่เฝ้าระวัง อ.ยะรัง อ.สายบุรี จว.ปัตตานี ห้วงเฝ้าระวัง ๕ - ๑๖ มี.ค.๖๘"
                 />
                 <div className="form-actions" style={{ marginTop: '0.6rem' }}>

@@ -1,10 +1,17 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { GovComplianceModal, type ComplianceModalTab } from './components/GovComplianceModal';
 import { GovFooter } from './components/GovFooter';
-import { GovHeader, W56Sidebar, type ActiveTab } from './components/GovHeader';
+import {
+  GovBreadcrumb,
+  GovHeader,
+  W56Sidebar,
+  type ActiveTab,
+  type FontSizeMode,
+} from './components/GovHeader';
 import { IncidentFormPage } from './components/IncidentFormPage';
 import { DEFAULT_SETTINGS, buildSampleIncidents } from './data/defaults';
 import type { AppSettings, IncidentRecord, WatchAlertRecord } from './types/incident';
-import type { NewsToIncidentDraft } from './types/news';
+import type { NewsCategoryId, NewsToIncidentDraft } from './types/news';
 import { decodeConfigHash } from './utils/configShare';
 import {
   pullIncidentsFromGas,
@@ -65,13 +72,19 @@ export function App() {
       return false;
     }
   });
-  const [fontLarge, setFontLarge] = useState<boolean>(() => {
+  const [fontSizeMode, setFontSizeMode] = useState<FontSizeMode>(() => {
     try {
-      return localStorage.getItem('w56_intel_font_large') === '1';
+      const saved = localStorage.getItem('w56_intel_font_size');
+      if (saved === 'sm' || saved === 'md' || saved === 'lg') return saved;
+      return localStorage.getItem('w56_intel_font_large') === '1' ? 'lg' : 'md';
     } catch {
-      return false;
+      return 'md';
     }
   });
+  const [complianceModal, setComplianceModal] = useState<ComplianceModalTab | null>(null);
+  const [requestedNewsCategory, setRequestedNewsCategory] = useState<'all' | NewsCategoryId | null>(
+    null
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem('w56_intel_sidebar_collapsed') === '1';
@@ -155,13 +168,15 @@ export function App() {
   }, [themeDark]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('font-large', fontLarge);
+    document.documentElement.classList.toggle('font-small', fontSizeMode === 'sm');
+    document.documentElement.classList.toggle('font-large', fontSizeMode === 'lg');
     try {
-      localStorage.setItem('w56_intel_font_large', fontLarge ? '1' : '0');
+      localStorage.setItem('w56_intel_font_size', fontSizeMode);
+      localStorage.setItem('w56_intel_font_large', fontSizeMode === 'lg' ? '1' : '0');
     } catch {
       // ignore storage errors
     }
-  }, [fontLarge]);
+  }, [fontSizeMode]);
 
   useEffect(() => {
     try {
@@ -458,11 +473,18 @@ export function App() {
 
   const hasGasUrl = Boolean((settings.gasFetchUrl || settings.gasWebhookUrl).trim());
 
+  const handleGoHome = (newsCategory: 'all' | NewsCategoryId = 'all') => {
+    setRequestedNewsCategory(newsCategory);
+    setActiveTab('news-hub');
+  };
+
   return (
     <div className="w56-app-layout">
       <W56Sidebar
         activeTab={activeTab}
         onChangeTab={(tab) => setActiveTab(tab)}
+        onGoHome={() => handleGoHome('all')}
+        onOpenComplianceModal={(modal) => setComplianceModal(modal)}
         settings={settings}
         pendingSyncCount={pendingSyncCount}
         totalIncidents={incidents.length}
@@ -480,8 +502,8 @@ export function App() {
           lastPulledAt={lastPulledAt}
           themeDark={themeDark}
           onToggleTheme={() => setThemeDark((prev) => !prev)}
-          fontLarge={fontLarge}
-          onToggleFontLarge={() => setFontLarge((prev) => !prev)}
+          fontSizeMode={fontSizeMode}
+          onChangeFontSize={setFontSizeMode}
           highContrast={highContrast}
           onToggleHighContrast={() => setHighContrast((prev) => !prev)}
           onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
@@ -489,6 +511,7 @@ export function App() {
 
         <main id="main-content" className="gov-main" tabIndex={-1}>
           <div className={`gov-container ${activeTab === 'ipb' ? 'wide-dashboard' : ''}`}>
+          <GovBreadcrumb activeTab={activeTab} onGoHome={() => handleGoHome('all')} />
           {startupNotice && (
             <div className="inline-alert info startup-banner" role="status">
               <span>{startupNotice}</span>
@@ -517,6 +540,8 @@ export function App() {
               {activeTab === 'news-hub' && (
                 <NewsHubPage
                   settings={settings}
+                  requestedCategory={requestedNewsCategory}
+                  onConsumeRequestedCategory={() => setRequestedNewsCategory(null)}
                   onImportToIncident={(draft) => {
                     setEditingIncident(null);
                     setNewsDraft(draft);
@@ -589,7 +614,25 @@ export function App() {
           </div>
         </main>
 
-        <GovFooter settings={settings} />
+        <GovFooter
+          settings={settings}
+          onChangeTab={(tab) => setActiveTab(tab)}
+          onOpenModal={(tab) => setComplianceModal(tab)}
+        />
+
+        <GovComplianceModal
+          activeModal={complianceModal}
+          onChangeModal={(tab) => setComplianceModal(tab)}
+          onClose={() => setComplianceModal(null)}
+          onNavigateTab={(tab, newsCategory) => {
+            if (tab === 'news-hub') {
+              handleGoHome(newsCategory || 'all');
+            } else {
+              setActiveTab(tab);
+            }
+            setComplianceModal(null);
+          }}
+        />
       </div>
     </div>
   );
