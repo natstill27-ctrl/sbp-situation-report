@@ -455,8 +455,18 @@ function escapeXml(value) {
     .replace(/'/g, '&apos;');
 }
 
+function cleanRssExcerpt(text, maxLen = 360) {
+  const cleaned = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (cleaned.length <= maxLen) return cleaned;
+  const slice = cleaned.slice(0, maxLen);
+  const lastSpace = slice.lastIndexOf(' ');
+  const cutoff = lastSpace > Math.floor(maxLen * 0.6) ? lastSpace : maxLen;
+  return `${slice.slice(0, cutoff).trim()}…`;
+}
+
 function buildRss2Xml(feed) {
-  const siteUrl = 'https://wing56-intel.local/';
+  const rawSiteUrl = process.env.SITE_URL || 'https://natstill27-ctrl.github.io/sbp-situation-report/';
+  const siteUrl = rawSiteUrl.endsWith('/') ? rawSiteUrl : `${rawSiteUrl}/`;
   const buildDate = new Date(feed.generatedAt || Date.now()).toUTCString();
   const itemsXml = (feed.items || [])
     .map((item) => {
@@ -467,7 +477,8 @@ function buildRss2Xml(feed) {
       const pubDate = Number.isNaN(new Date(item.publishedAt).getTime())
         ? buildDate
         : new Date(item.publishedAt).toUTCString();
-      const desc = `${item.summary || item.title} (แหล่งข่าว: ${item.sourceName} | พื้นที่: ${provText})`;
+      const excerpt = cleanRssExcerpt(item.summary || item.title);
+      const desc = `${excerpt} (แหล่งข่าว: ${item.sourceName} | พื้นที่: ${provText})`;
       return [
         '    <item>',
         `      <title>${escapeXml(item.title)}</title>`,
@@ -483,6 +494,7 @@ function buildRss2Xml(feed) {
 
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
+    '<?xml-stylesheet type="text/xsl" href="./daily-news.xsl"?>',
     '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
     '  <channel>',
     '    <title>ศูนย์ข่าวกรองรายวัน ผขว.บก.บน.56 (7 จังหวัดภาคใต้ตอนล่าง)</title>',

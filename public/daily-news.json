@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-27T14:06:30.175Z",
+  "generatedAt": "2026-11-27T14:16:24.835Z",
   "windowHours": 168,
   "items": [
     {
@@ -17,20 +17,6 @@
       "score": 15
     },
     {
-      "id": "NEWS-O0HXPY",
-      "category": "economy",
-      "title": "พัทลุง | บุกทลายคลังบุหรี่ไฟฟ้า ยึดของกลาง 110 ลัง กว่า 22,000 ชิ้น มูลค่ากว่า 8 ล้านบาท จับผู้ต้องหา 1 ราย",
-      "summary": "พัทลุง | บุกทลายคลังบุหรี่ไฟฟ้า ยึดของกลาง 110 ลัง กว่า 22,000 ชิ้น มูลค่ากว่า 8 ล้านบาท จับผู้ต้องหา 1 ราย",
-      "link": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE9aYWdGUy1JbklWQ1VHSGVzT0RKR2l0andURzVuWm1pUGZIb1hXclFQVDl4SFphNGl3NHVMOGNOd2J6U2JyMVZEeEs1dmZOa0NaNW5OZDJqd3VKUQ?oc=5",
-      "sourceName": "HATYAI FOCUS",
-      "sourceTier": "local-neutral",
-      "publishedAt": "2026-11-27T09:21:07.000Z",
-      "provinces": [
-        "พัทลุง"
-      ],
-      "score": 9
-    },
-    {
       "id": "NEWS-1TY5P1G",
       "category": "politics",
       "title": "จังหวัดยะลา จัดพิธีบวงสรวงการก่อสร้างซุ้มถวายดอกไม้จันทน์ ภาคประชาชน ในส่วนภูมิภาค น้อมถวายความอาลัยและสำนึกในพระมหากรุณาธิคุณ สมเด็จพระบรมราชชนนีพันปีหลวง ณ สนามโรงพิธีช้างเผือก เทศบาลนครยะลา",
@@ -43,6 +29,20 @@
         "ยะลา"
       ],
       "score": 9
+    },
+    {
+      "id": "NEWS-9QM8PZ",
+      "category": "weather",
+      "title": "อุตุฯ นราธิวาส เตือนภาคใต้ฝั่งตะวันออกมีฝนเพิ่มขึ้น ระหว่างวันที่ 28–30 พฤศจิกายนนี้ ขณะที่จังหวัดนราธิวาสมีฝนฟ้าคะนองหลายพื้นที่ ขอประชาชนเฝ้าระวังฝนตกหนักและน้ำท่วมฉับพลัน",
+      "summary": "อุตุฯ นราธิวาส เตือนภาคใต้ฝั่งตะวันออกมีฝนเพิ่มขึ้น ระหว่างวันที่ 28–30 พฤศจิกายนนี้ ขณะที่จังหวัดนราธิวาสมีฝนฟ้าคะนองหลายพื้นที่ ขอประชาชนเฝ้าระวังฝนตกหนักและน้ำท่วมฉับพลัน",
+      "link": "https://news.google.com/rss/articles/CBMib0FVX3lxTE96LXVEclJqUTQ0dnRtYk16VFU4cUZ5YjFLVG4xbkp5cUR6dDg5bUVSUWhLTEJiX1F5N0EzUzBxbnd4ZmdMYW12LW1sR0VvOVlBR1p6VmsyQy1oUDhfbkVNVzczazdaU2tpc2xRMnBOWQ?oc=5",
+      "sourceName": "NBT CONNEXT",
+      "sourceTier": "official-public",
+      "publishedAt": "2026-11-27T09:00:47.000Z",
+      "provinces": [
+        "นราธิวาส"
+      ],
+      "score": 29
     },
     {
       "id": "NEWS-1DSJCK8",
@@ -333,20 +333,6 @@
       "score": 18
     },
     {
-      "id": "NEWS-JX0K3V",
-      "category": "economy",
-      "title": "สงขลา | ตรวจสอบหลังพบปลากระชังเกษตรกรทยอยตาย 2-3 วัน เร่งเก็บตัวอย่างตรวจหาสาเหตุ",
-      "summary": "สงขลา | ตรวจสอบหลังพบปลากระชังเกษตรกรทยอยตาย 2-3 วัน เร่งเก็บตัวอย่างตรวจหาสาเหตุ",
-      "link": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE9hbVkzdldzcHpERUlvNVFIa0J5NVpOQ2dPNmNnMjdfUkxCVzVfRG9FeVNBam5DY09iRUsyYTRPOWdWRFBENGhBWTBiT2h2S1lKZ05FbU9DaG9nZw?oc=5",
-      "sourceName": "HATYAI FOCUS",
-      "sourceTier": "local-neutral",
-      "publishedAt": "2026-11-26T05:14:56.000Z",
-      "provinces": [
-        "สงขลา"
-      ],
-      "score": 7
-    },
-    {
       "id": "NEWS-ZMLBYT",
       "category": "migrant",
       "title": "บก.ควบคุมสุริโยทัย ยกระดับคุมเข้ม 4 ด่านชายแดนไทย–มาเลเซีย สกัดกั้นสิ่งผิดกฎหมายและภัยคุกคามความมั่นคง",
@@ -361,20 +347,6 @@
       ],
       "districtHint": "เบตง",
       "score": 23
-    },
-    {
-      "id": "NEWS-1TSETFU",
-      "category": "social",
-      "title": "สงขลา | โรงพยาบาลสงขลาก้าวหน้าอีกขั้น เปิดบริการเปลี่ยนถ่ายพลาสมา (TPE) ประเดิมรักษาผู้ป่วยรายแรกสำเร็จ",
-      "summary": "สงขลา | โรงพยาบาลสงขลาก้าวหน้าอีกขั้น เปิดบริการเปลี่ยนถ่ายพลาสมา (TPE) ประเดิมรักษาผู้ป่วยรายแรกสำเร็จ",
-      "link": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE1nU2NVaVRIcGF0UHBtWmNGUjJwUlZqX0xtVC14Q2lKaGNHcGVXaDFYMkZhTUlRTC1EMWJYSVFlTG1GakJxdGw1V01SNUt3WXdXV1NTSDZNQXFKUQ?oc=5",
-      "sourceName": "HATYAI FOCUS",
-      "sourceTier": "local-neutral",
-      "publishedAt": "2026-11-26T04:06:05.000Z",
-      "provinces": [
-        "สงขลา"
-      ],
-      "score": 9
     },
     {
       "id": "NEWS-7IHC0Q",
@@ -579,13 +551,13 @@
     }
   ],
   "stats": {
-    "totalChecked": 351,
-    "acceptedCount": 40,
-    "excludedDramaCount": 47,
-    "excludedSourceCount": 130,
+    "totalChecked": 322,
+    "acceptedCount": 38,
+    "excludedDramaCount": 41,
+    "excludedSourceCount": 118,
     "excludedStaleCount": 11,
-    "excludedOutOfAreaCount": 113,
-    "excludedDuplicateCount": 10
+    "excludedOutOfAreaCount": 110,
+    "excludedDuplicateCount": 4
   },
   "sourceMode": "static"
 }

@@ -45,7 +45,7 @@ function buildItemXml(item: CuratedNewsItem, fallbackIso: string): string {
 /** Generate a W3C-compliant RSS 2.0 XML feed for the Wing 56 Intelligence News HUB. */
 export function buildDailyNewsRssXml(
   feed: DailyNewsFeed,
-  siteUrl = 'https://wing56-intel.local/'
+  siteUrl = 'https://natstill27-ctrl.github.io/sbp-situation-report/'
 ): string {
   const normalizedUrl = siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
   const lastBuild = formatRfc822Date(feed.generatedAt);
@@ -53,6 +53,7 @@ export function buildDailyNewsRssXml(
 
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
+    '<?xml-stylesheet type="text/xsl" href="./daily-news.xsl"?>',
     '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
     '  <channel>',
     '    <title>ศูนย์ข่าวกรองรายวัน ผขว.บก.บน.56 (7 จังหวัดภาคใต้ตอนล่าง)</title>',

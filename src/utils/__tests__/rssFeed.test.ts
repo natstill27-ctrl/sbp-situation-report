@@ -61,7 +61,9 @@ describe('rssFeed (DGA RSS 2.0 compliance)', () => {
     };
 
     const xml = buildDailyNewsRssXml(syntheticFeed, 'https://example.org/wing56-intel');
-    expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
+    const lines = xml.split('\n');
+    expect(lines[0]).toBe('<?xml version="1.0" encoding="UTF-8"?>');
+    expect(lines[1]).toBe('<?xml-stylesheet type="text/xsl" href="./daily-news.xsl"?>');
     expect(xml).toContain('<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">');
     expect(xml).toContain('<channel>');
     expect(xml).toContain('<language>th</language>');
@@ -75,5 +77,11 @@ describe('rssFeed (DGA RSS 2.0 compliance)', () => {
     expect(xml).toContain('[B2]');
     expect(xml).toContain('[C2]');
     expect(xml.trimEnd().endsWith('</rss>')).toBe(true);
+
+    const defaultXml = buildDailyNewsRssXml(syntheticFeed);
+    expect(defaultXml).toContain('<link>https://natstill27-ctrl.github.io/sbp-situation-report/</link>');
+    expect(defaultXml).toContain(
+      'href="https://natstill27-ctrl.github.io/sbp-situation-report/daily-news.xml"'
+    );
   });
 });
