@@ -73,3 +73,10 @@ export interface IntelBrief5W1H {
   assessment: string;
   sourceCode: string;
 }
+
+export interface NiaBriefSummary {
+  headline: string;
+  publishedLabel: string;
+  paragraph: string;
+  sourceCode: string;
+}

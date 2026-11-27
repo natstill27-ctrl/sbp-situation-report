@@ -26,7 +26,9 @@ import type {
 import { getTargetProvinces } from '../utils/geoLookup';
 import {
   buildIntelBrief5W1H,
+  buildNiaProseSummary,
   formatIntelBrief5W1HText,
+  formatNiaSummaryForCopy,
   getSourceReliabilityCode,
 } from '../utils/intelBrief5w1h';
 import {
@@ -60,7 +62,7 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
 
-  const [briefView, setBriefView] = useState<'5w1h' | 'compact'>('5w1h');
+  const [briefView, setBriefView] = useState<'nia' | '5w1h'>('nia');
   const [copiedNewsId, setCopiedNewsId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<'all' | NewsCategoryId>('all');
   const [isocOnly, setIsocOnly] = useState(false);
@@ -162,10 +164,11 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
   const handleImport = (item: CuratedNewsItem) => {
     const matchedProvince = item.provinces.find((p) => provinces.includes(p)) || '';
     const mappedIncidentCategory = mapNewsCategoryToIncidentCategory(item, settings.categories);
+    const nia = buildNiaProseSummary(item);
     onImportToIncident({
       newsId: item.id,
-      title: item.title,
-      summary: formatIntelBrief5W1HText(item),
+      title: nia.headline,
+      summary: nia.paragraph,
       link: item.link,
       sourceName: item.sourceName,
       publishedAt: item.publishedAt,
@@ -177,7 +180,8 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
   };
 
   const handleCopyBrief = async (item: CuratedNewsItem) => {
-    const text = formatIntelBrief5W1HText(item);
+    const text =
+      briefView === 'nia' ? formatNiaSummaryForCopy(item) : formatIntelBrief5W1HText(item);
     await navigator.clipboard.writeText(text);
     setCopiedNewsId(item.id);
     window.setTimeout(() => {
@@ -201,25 +205,25 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
             <div className="news-editorial-pill">
               <ShieldCheck size={15} aria-hidden="true" />
               <span>
-                สรุปข่าวกรอง 5 บรรทัด (หลัก 5W1H แนวทาง สขช.) • คัดสื่อตรงไปตรงมา &amp; ตัดข่าวดราม่า
+                สรุปข่าวกรองแบบ สขช. (4–5 บรรทัด ครบหลัก 5W1H) • คัดสื่อตรงไปตรงมา &amp; ตัดข่าวดราม่า
               </span>
             </div>
             <h2 id="news-hub-heading" className="section-title" style={{ marginTop: '0.5rem' }}>
               ศูนย์ข่าวกรองรายวัน 7 จังหวัดภาคใต้ตอนล่าง
             </h2>
             <p className="section-subtitle">
-              อ่านเข้าใจครบประเด็นภายใน 5 บรรทัด (What / Who / Where-When / Why-How / ประเมินข่าวกรอง) ครอบคลุมพื้นที่ ผขว.บก.บน.56
+              สรุปเนื้อหาข่าวให้เข้าใจครบภายใน 1 ย่อหน้า (4–5 บรรทัด) ตามรูปแบบสำนักข่าวกรองแห่งชาติ ครอบคลุมพื้นที่ ผขว.บก.บน.56
             </p>
           </div>
           <div className="news-hub-actions">
             <button
               type="button"
-              className={`btn btn-outline news-view-toggle ${briefView === '5w1h' ? 'active' : ''}`}
-              onClick={() => setBriefView((v) => (v === '5w1h' ? 'compact' : '5w1h'))}
-              aria-pressed={briefView === '5w1h'}
+              className={`btn btn-outline news-view-toggle ${briefView === 'nia' ? 'active' : ''}`}
+              onClick={() => setBriefView((v) => (v === 'nia' ? '5w1h' : 'nia'))}
+              aria-pressed={briefView === 'nia'}
             >
               <ListChecks size={16} aria-hidden="true" />
-              <span>{briefView === '5w1h' ? 'มุมมองสรุป 5W1H (5 บรรทัด)' : 'มุมมองหัวข้อข่าว'}</span>
+              <span>{briefView === 'nia' ? 'มุมมองสรุปแบบ สขช.' : 'มุมมองแยกช่อง 5W1H'}</span>
             </button>
             <span className="news-updated-badge">
               <Clock size={14} aria-hidden="true" />
@@ -419,32 +423,41 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
         <div className="news-cards-grid">
           {filteredItems.map((item) => {
             const meta = NEWS_CATEGORY_MAP[item.category];
+            const nia = buildNiaProseSummary(item);
             const brief = buildIntelBrief5W1H(item);
             const reliability = getSourceReliabilityCode(item.sourceTier);
-            const bkkIso = new Date(new Date(item.publishedAt).getTime() + 7 * 60 * 60 * 1000)
-              .toISOString()
-              .slice(0, 16);
             return (
               <article key={item.id} className="gov-card news-item-card">
                 <div className="news-card-meta-top">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.38rem', flexWrap: 'wrap' }}>
                     <span
                       className="news-cat-badge"
                       style={{ color: meta.color, backgroundColor: meta.bgColor }}
                     >
                       {meta.label}
                     </span>
+                    {item.provinces.map((p) => (
+                      <span key={p} className="news-prov-chip">
+                        จ.{p}
+                      </span>
+                    ))}
                     <span className="news-reliability-code" title={reliability.label}>
                       รหัส {reliability.code}
                     </span>
                   </div>
-                  <span className="news-age-text" title={formatThaiDateTime(bkkIso)}>
-                    {formatRelativeAge(item.publishedAt, nowMs)}
-                  </span>
+                  <span className="news-age-text">{formatRelativeAge(item.publishedAt, nowMs)}</span>
                 </div>
 
-                {briefView === '5w1h' ? (
-                  <div className="news-5w1h-list" aria-label="สรุปข่าวกรอง 5 บรรทัดตามหลัก 5W1H">
+                {briefView === 'nia' ? (
+                  <div className="news-nia-body">
+                    <h3 className="news-card-title">{nia.headline}</h3>
+                    <p className="news-nia-meta">
+                      เผยแพร่เมื่อ : {nia.publishedLabel} | แหล่งข่าว : {item.sourceName}
+                    </p>
+                    <p className="news-nia-prose">{nia.paragraph}</p>
+                  </div>
+                ) : (
+                  <div className="news-5w1h-list" aria-label="แยกโครงสร้างข่าวกรอง 5W1H">
                     <div className="news-5w1h-row">
                       <span className="news-5w1h-tag tag-what">WHAT</span>
                       <span className="news-5w1h-text strong">{brief.what}</span>
@@ -466,26 +479,6 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
                       <span className="news-5w1h-text">{brief.assessment}</span>
                     </div>
                   </div>
-                ) : (
-                  <>
-                    <h3 className="news-card-title">{item.title}</h3>
-                    {item.summary && item.summary !== item.title && (
-                      <p className="news-card-summary">{item.summary}</p>
-                    )}
-                    <div className="news-card-tags">
-                      {item.provinces.map((p) => (
-                        <span key={p} className="news-prov-chip">
-                          จว.{p}
-                        </span>
-                      ))}
-                      {item.districtHint && (
-                        <span className="news-dist-chip">อ.{item.districtHint}</span>
-                      )}
-                      <span className={`news-tier-badge tier-${item.sourceTier}`}>
-                        {item.sourceName} ({SOURCE_TIER_LABELS[item.sourceTier]})
-                      </span>
-                    </div>
-                  </>
                 )}
 
                 <div className="news-card-footer">
@@ -505,14 +498,14 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
                       type="button"
                       className="btn btn-sm btn-outline"
                       onClick={() => handleCopyBrief(item)}
-                      title="คัดลอกสรุป 5 บรรทัดตามหลัก 5W1H"
+                      title="คัดลอกสรุปข่าวตามรูปแบบ สขช."
                     >
                       {copiedNewsId === item.id ? (
                         <Check size={14} aria-hidden="true" />
                       ) : (
                         <ClipboardCopy size={14} aria-hidden="true" />
                       )}
-                      <span>{copiedNewsId === item.id ? 'คัดลอกแล้ว' : 'คัดลอก 5W1H'}</span>
+                      <span>{copiedNewsId === item.id ? 'คัดลอกแล้ว' : 'คัดลอกสรุปข่าว'}</span>
                     </button>
                   </div>
                   <button

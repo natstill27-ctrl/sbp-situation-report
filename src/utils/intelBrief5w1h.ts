@@ -2,9 +2,10 @@ import type {
   CuratedNewsItem,
   IntelBrief5W1H,
   NewsCategoryId,
+  NiaBriefSummary,
   SourceTier,
 } from '../types/news';
-import { formatThaiDateTime } from './thaiDate';
+import { THAI_MONTHS_LONG, THAI_MONTHS_SHORT, formatThaiDateTime } from './thaiDate';
 
 const INNER_AOR_PROVINCES = new Set(['สงขลา', 'พัทลุง', 'ตรัง', 'สตูล']);
 const BORDER_AOR_PROVINCES = new Set(['ปัตตานี', 'ยะลา', 'นราธิวาส']);
@@ -288,4 +289,228 @@ export function formatIntelBrief5W1HText(
     `4) WHY/HOW: ${b.whyHow}`,
     `5) ประเมินข่าวกรอง: ${b.assessment}`,
   ].join('\n');
+}
+
+const THAI_LONG_TO_SHORT_MONTH = new Map(
+  THAI_MONTHS_LONG.map((longName, idx) => [longName, THAI_MONTHS_SHORT[idx]])
+);
+
+const LONG_MONTH_PATTERN = THAI_MONTHS_LONG.join('|');
+
+function toBangkokIso16(isoString: string): string {
+  const ms = new Date(isoString).getTime();
+  if (Number.isNaN(ms)) return '';
+  return new Date(ms + 7 * 60 * 60 * 1000).toISOString().slice(0, 16);
+}
+
+/**
+ * Format ISO timestamp into NIA short BE date (e.g. "26 พ.ย.69") in Asia/Bangkok.
+ */
+export function formatNiaShortDate(isoString: string): string {
+  const bkkIso = toBangkokIso16(isoString);
+  if (!bkkIso) return '-';
+  return formatThaiDateTime(bkkIso, { shortMonth: true, includeTime: false });
+}
+
+/**
+ * Normalize formal Thai bureaucratic text into crisp NIA intelligence prose style:
+ * - Short BE dates (26 พฤศจิกายน 2569 -> 26 พ.ย.69)
+ * - Compact area prefixes (จังหวัด -> จ., อำเภอ -> อ., ตำบล -> ต.)
+ * - Strip URLs, hashtags, photo credits, and trailing read-more tags
+ */
+export function normalizeThaiToNiaStyle(text: string): string {
+  let clean = (text || '')
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/#[^\s#]+/g, '')
+    .replace(/อ่าน(?:ข่าวต่อ|เพิ่มเติม)[^ ]*/g, '')
+    .replace(/\[…\]|\[\.\.\.\]/g, '')
+    .replace(/[–—]\s*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Convert date ranges: "10 – 11 พฤศจิกายน 2569" -> "10–11 พ.ย.69"
+  const rangeRx = new RegExp(
+    `(\\d{1,2})\\s*[–\\-]\\s*(\\d{1,2})\\s*(${LONG_MONTH_PATTERN})\\s*(?:พ\\.ศ\\.?\\s*)?(25\\d{2}|\\d{2})`,
+    'g'
+  );
+  clean = clean.replace(rangeRx, (_m, d1, d2, monthLong, yr) => {
+    const shortM = THAI_LONG_TO_SHORT_MONTH.get(monthLong) || monthLong;
+    const shortY = String(yr).slice(-2);
+    return `${d1}–${d2} ${shortM}${shortY}`;
+  });
+
+  // Convert full Thai date: "26 พฤศจิกายน 2569" -> "26 พ.ย.69"
+  const fullDateRx = new RegExp(
+    `(\\d{1,2})\\s*(${LONG_MONTH_PATTERN})\\s*(?:พ\\.ศ\\.?\\s*)?(25\\d{2}|\\d{2})`,
+    'g'
+  );
+  clean = clean.replace(fullDateRx, (_m, day, monthLong, yr) => {
+    const shortM = THAI_LONG_TO_SHORT_MONTH.get(monthLong) || monthLong;
+    const shortY = String(yr).slice(-2);
+    return `${day} ${shortM}${shortY}`;
+  });
+
+  clean = clean
+    .replace(/(^|\s)จังหวัด\s*/g, '$1จ.')
+    .replace(/(^|\s)อำเภอ\s*/g, '$1อ.')
+    .replace(/(^|\s)ตำบล\s*/g, '$1ต.')
+    .replace(/(^|\s)หมู่ที่\s*/g, '$1ม.')
+    .replace(/!+/g, '')
+    .replace(/\.{3,}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return clean;
+}
+
+export function buildNiaAttributionPrefix(sourceName: string): string {
+  const clean = (sourceName || '').trim();
+  if (!clean) return 'แหล่งข่าว';
+  if (clean.includes('กอ.รมน.ภาค 4 สน.')) return 'ศูนย์ประชาสัมพันธ์ กอ.รมน.ภาค 4 สน.';
+  if (clean === 'สำนักงานคณะกรรมการการเลือกตั้ง') return 'สำนักงาน กกต.';
+  if (clean.startsWith('สำนักงาน') || clean.startsWith('กรม') || clean.startsWith('ศูนย์')) {
+    return clean;
+  }
+  return `สนข. ${clean}`;
+}
+
+function sliceOnWordBoundary(text: string, maxLen: number): { head: string; tail: string } {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean.length <= maxLen) return { head: clean, tail: '' };
+  const window = clean.slice(0, maxLen);
+  const splitAt = window.lastIndexOf(' ');
+  const idx = splitAt > maxLen * 0.55 ? splitAt : maxLen;
+  return {
+    head: clean.slice(0, idx).trim(),
+    tail: clean.slice(idx).trim(),
+  };
+}
+
+function buildNiaClosingContext(item: CuratedNewsItem): string {
+  const text = `${item.title} ${item.summary}`;
+  const hasInner = item.provinces.some((p) => INNER_AOR_PROVINCES.has(p));
+
+  if (item.category === 'security') {
+    if (/(จับกุม|ควบคุมตัว|รวบ|ปิดล้อม|ซักถาม)/.test(text)) {
+      return hasInner
+        ? 'ทั้งนี้ เจ้าหน้าที่อยู่ระหว่างการซักถามและขยายผลเครือข่ายผู้ร่วมขบวนการ พร้อมเฝ้าระวังพื้นที่ชั้นในใกล้เคียง บก.บน.56 อย่างต่อเนื่อง'
+        : 'ทั้งนี้ เจ้าหน้าที่อยู่ระหว่างขยายผลเครือข่ายผู้เกี่ยวข้องและเพิ่มความเข้มงวดในการควบคุมพื้นที่ตามแนวทาง กอ.รมน.ภาค 4 สน.';
+    }
+    return hasInner
+      ? 'ทั้งนี้ หน่วยงานความมั่นคงในพื้นที่ชั้นในอยู่ระหว่างติดตามสถานการณ์และเฝ้าระวังความเชื่อมโยงด้านการข่าวอย่างใกล้ชิด'
+      : 'ทั้งนี้ หน่วยงานความมั่นคงในพื้นที่ จชต. อยู่ระหว่างประเมินสถานการณ์และติดตามความเคลื่อนไหวอย่างใกล้ชิด';
+  }
+  if (item.category === 'narcotics') {
+    return 'ทั้งนี้ เจ้าหน้าที่ได้ยึดของกลางและอยู่ระหว่างขยายผลถึงเครือข่ายผู้สั่งการ รวมถึงเส้นทางลำเลียงยาเสพติดในพื้นที่ภาคใต้ตอนล่าง';
+  }
+  if (item.category === 'economy') {
+    return /(เถื่อน|หนีภาษี|ศุลกากร|บุหรี่ไฟฟ้า)/.test(text)
+      ? 'ทั้งนี้ เจ้าหน้าที่ได้ตรวจยึดของกลางดำเนินคดีตามกฎหมาย และเฝ้าระวังเส้นทางลักลอบขนส่งสินค้าผิดกฎหมายในพื้นที่ชายแดนและตอนใน'
+      : 'ทั้งนี้ หน่วยงานภาครัฐและภาคเอกชนในพื้นที่อยู่ระหว่างขับเคลื่อนมาตรการดังกล่าวเพื่อรักษาเสถียรภาพทางเศรษฐกิจและการค้าในภาคใต้ตอนล่าง';
+  }
+  if (item.category === 'politics') {
+    return /(ประท้วง|ยื่นหนังสือ|ค้าน|ป\.ป\.ช\.|ซื้อเสียง)/.test(text)
+      ? 'ทั้งนี้ หน่วยงานที่เกี่ยวข้องอยู่ระหว่างรับเรื่องตรวจสอบข้อเท็จจริงและประเมินท่าทีความเคลื่อนไหวของกลุ่มมวลชนในพื้นที่'
+      : 'ทั้งนี้ เป็นความเคลื่อนไหวด้านการบริหารราชการและการเมืองท้องถิ่นในพื้นที่รับผิดชอบของ บก.บน.56 ที่ต้องติดตามความต่อเนื่อง';
+  }
+  if (/(น้ำท่วม|อุทกภัย|สถานการณ์น้ำ|ระดับน้ำ|ฝนตก|ภัยพิบัติ)/.test(text)) {
+    return 'ทั้งนี้ หน่วยงานบรรเทาสาธารณภัยและฝ่ายปกครองได้แจ้งเตือนประชาชนในพื้นที่เสี่ยง เตรียมพร้อมเส้นทางสัญจรและแผนช่วยเหลือเร่งด่วน';
+  }
+  return 'ทั้งนี้ หน่วยงานที่เกี่ยวข้องในพื้นที่ได้ติดตามสถานการณ์อย่างใกล้ชิดเพื่อลดผลกระทบต่อประชาชนและรักษาความสงบเรียบร้อยในพื้นที่';
+}
+
+function extractSecondaryClause(tailText: string): string {
+  if (!tailText) return '';
+  const match = tailText.match(
+    /(?:ทั้งนี้|เบื้องต้น|ขณะนี้|อย่างไรก็ตาม|จากการประเมิน(?:สถานการณ์)?|นอกจากนี้|ส่งผลให้)\s+[^•|]{20,175}/
+  );
+  if (!match) return '';
+  const { head } = sliceOnWordBoundary(match[0], 165);
+  const normalized = head.replace(
+    /^(?:เบื้องต้น|ขณะนี้|อย่างไรก็ตาม|จากการประเมิน(?:สถานการณ์)?|นอกจากนี้|ส่งผลให้)\s+/,
+    'ทั้งนี้ '
+  );
+  return normalized.startsWith('ทั้งนี้') ? normalized : `ทั้งนี้ ${normalized}`;
+}
+
+/**
+ * Build a cohesive 4-5 line executive intelligence summary following NIA (nia.go.th) style.
+ */
+export function buildNiaProseSummary(item: CuratedNewsItem): NiaBriefSummary {
+  const { code } = getSourceReliabilityCode(item.sourceTier);
+  const headline = cleanHeadlineForIntel(item.title);
+  const bkkIso = toBangkokIso16(item.publishedAt);
+  const publishedLabel = bkkIso ? formatThaiDateTime(bkkIso, { shortMonth: true }) : '-';
+  const shortDate = formatNiaShortDate(item.publishedAt);
+  const attribution = buildNiaAttributionPrefix(item.sourceName);
+
+  const rawSummary = (item.summary || '').replace(/\s+/g, ' ').trim();
+  const hasRichBody = rawSummary.length > item.title.trim().length + 30;
+
+  let bodyLead = '';
+  let closingClause = '';
+
+  if (hasRichBody) {
+    let cleanedBody = rawSummary
+      .replace(
+        /^(?:วันนี้\s*)?\(?(?:เมื่อ)?วันที่\s*\d{1,2}\s*[ก-๙.]+\s*(?:พ\.ศ\.?\s*)?\d{2,4}\)?\s*(?:เวลา(?:ประมาณ)?\s*[\d.:]+\s*น\.?)?\s*/i,
+        ''
+      )
+      .replace(/^จากกรณี/i, 'กรณี')
+      .trim();
+    cleanedBody = normalizeThaiToNiaStyle(cleanedBody);
+    const { head, tail } = sliceOnWordBoundary(cleanedBody, 255);
+    bodyLead = head;
+    closingClause = extractSecondaryClause(tail);
+  } else {
+    let leadCore = normalizeThaiToNiaStyle(headline);
+    // Avoid awkward "รายงานเมื่อ ... ว่า จ.พัทลุง ..." -> make location natural
+    if (/^(?:จ\.|จว\.)[ก-๙]+\s+/.test(leadCore) && !leadCore.startsWith('จ.')) {
+      leadCore = leadCore.replace(/^จว\./, 'จ.');
+    }
+    const hasAreaInLead = item.provinces.some((p) => leadCore.includes(p));
+    const provTag = item.provinces
+      .filter((p) => p !== 'ภาคใต้ตอนล่าง')
+      .map((p) => `จ.${p}`)
+      .join(', ');
+    const areaSuffix =
+      !hasAreaInLead && provTag ? ` ในพื้นที่ ${item.districtHint ? `อ.${item.districtHint} ` : ''}${provTag}` : '';
+    bodyLead = `${leadCore}${areaSuffix}`;
+  }
+
+  if (!closingClause) {
+    closingClause = buildNiaClosingContext(item);
+  }
+
+  // Prevent trailing "ทั้งนี้" duplication if bodyLead already ended inside a clause
+  const combined = `${attribution} รายงานเมื่อ ${shortDate} ว่า ${bodyLead} ${closingClause}`
+    .replace(/\s+/g, ' ')
+    .replace(/ทั้งนี้\s+ทั้งนี้/g, 'ทั้งนี้')
+    .trim();
+
+  return {
+    headline,
+    publishedLabel,
+    paragraph: sliceOnWordBoundary(combined, 480).head,
+    sourceCode: code,
+  };
+}
+
+/**
+ * Format NIA-style summary as plain text matching the NIA website layout.
+ */
+export function formatNiaSummaryForCopy(
+  item: CuratedNewsItem,
+  existing?: NiaBriefSummary
+): string {
+  const nia = existing || buildNiaProseSummary(item);
+  const lines = [
+    nia.headline,
+    `เผยแพร่เมื่อ : ${nia.publishedLabel} | แหล่งข่าว : ${item.sourceName} (รหัส ${nia.sourceCode})`,
+    nia.paragraph,
+  ];
+  if (item.link) {
+    lines.push(`ที่มา : ${item.link}`);
+  }
+  return lines.join('\n');
 }

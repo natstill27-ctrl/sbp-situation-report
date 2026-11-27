@@ -261,16 +261,18 @@ async function fetchSouthpeaceOfficial({ label, url, hintCategory }) {
   if (!Array.isArray(posts)) return [];
   return posts.map((p) => {
     const title = decodeHtmlEntities(p?.title?.rendered || '');
+    const fullContent = decodeHtmlEntities(p?.content?.rendered || '');
     const excerpt = decodeHtmlEntities(p?.excerpt?.rendered || '')
       .replace(/\[…\]|\[\.\.\.\]/g, '')
       .trim();
+    const rawLead = (fullContent.length > excerpt.length ? fullContent : excerpt).slice(0, 900).trim();
     const rawDate = String(p?.date_gmt || p?.date || '');
     const isoDate = rawDate
       ? new Date(rawDate.endsWith('Z') ? rawDate : `${rawDate}Z`).toISOString()
       : new Date().toISOString();
     return {
       title,
-      summary: excerpt && excerpt !== title ? excerpt : title,
+      summary: rawLead && rawLead !== title ? rawLead : title,
       link: String(p?.link || '').trim(),
       sourceName: 'กอ.รมน.ภาค 4 สน.',
       publishedAt: isoDate,

@@ -2759,6 +2759,29 @@ html.high-contrast .quick-edit-box {
   font-weight: 700;
 }
 
+.news-nia-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.news-nia-meta {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  border-bottom: 1px dashed var(--border-light);
+  padding-bottom: 0.35rem;
+}
+
+.news-nia-prose {
+  margin: 0.1rem 0 0;
+  font-size: 0.92rem;
+  line-height: 1.62;
+  color: var(--text-main);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 .news-5w1h-doctrine-note {
   margin-bottom: 0.8rem;
   padding: 0.6rem 0.8rem;

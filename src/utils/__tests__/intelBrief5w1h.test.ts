@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { CuratedNewsItem } from '../../types/news';
 import {
   buildIntelBrief5W1H,
+  buildNiaProseSummary,
   cleanHeadlineForIntel,
   extractWhoActors,
   formatIntelBrief5W1HText,
+  formatNiaSummaryForCopy,
   getSourceReliabilityCode,
+  normalizeThaiToNiaStyle,
 } from '../intelBrief5w1h';
 
 describe('5W1H Intelligence Brief Formatter (NIA Style)', () => {
@@ -106,5 +109,64 @@ describe('5W1H Intelligence Brief Formatter (NIA Style)', () => {
     expect(brief2.whyHow).toContain('พร้อมของกลาง');
     expect(brief2.assessment).toContain('ชายแดนใต้');
     expect(brief2.assessment).toContain('สวพ.FM91 (B2)');
+  });
+
+  it('normalizes Thai dates and prefixes into NIA compact prose style', () => {
+    expect(
+      normalizeThaiToNiaStyle(
+        'เมื่อวันที่ 26 พฤศจิกายน 2569 ในพื้นที่ อำเภอหาดใหญ่ จังหวัดสงขลา #ข่าวด่วน https://example.com'
+      )
+    ).toBe('เมื่อวันที่ 26 พ.ย.69 ในพื้นที่ อ.หาดใหญ่ จ.สงขลา');
+
+    expect(
+      normalizeThaiToNiaStyle('เหตุการณ์ระหว่าง 10 – 11 พฤศจิกายน 2569 ตำบลแม่หวาด')
+    ).toBe('เหตุการณ์ระหว่าง 10–11 พ.ย.69 ต.แม่หวาด');
+  });
+
+  it('builds a single cohesive 4-5 line NIA prose summary for both rich ISOC articles and short headlines', () => {
+    const longIsocArticle: CuratedNewsItem = {
+      id: 'NEWS-NIA-1',
+      category: 'security',
+      title: 'กอ.รมน.ภาค 4 สน.บังคับใช้กฎหมายควบคุมตัวผู้ต้องสงสัยเกี่ยวข้องกับเหตุลอบวางระเบิดในพื้นที่ จ.สตูล จำนวน 2 ราย',
+      summary:
+        'จากกรณีหน่วยงานด้านความมั่นคงได้ตรวจสอบและยืนยันความเคลื่อนไหวของบุคคลต้องสงสัยที่อาจมีความเชื่อมโยงกับเหตุลอบวางระเบิดในพื้นที่จังหวัดสตูล เมื่อวันที่ 10 – 11 พฤศจิกายน 2569 ที่ผ่านมา จึงได้วางแผนเข้าบังคับใช้กฎหมายพร้อมกัน 2 จุด ส่งผลให้สามารถควบคุมตัวบุคคลต้องสงสัยได้จำนวน 2 ราย เพื่อดำเนินการซักถามและขยายผลเครือข่าย ' +
+        'ทั้งนี้ เจ้าหน้าที่ได้นำตัวส่งศูนย์ซักถามเพื่อตรวจสอบพยานหลักฐานเพิ่มเติมและยกระดับมาตรการรักษาความปลอดภัยในพื้นที่อย่างต่อเนื่อง ' +
+        'รายละเอียดเพิ่มเติมในส่วนของการปฏิบัติการทางยุทธวิธีและรายชื่อพยานบุคคลอยู่ระหว่างการรวบรวมของชุดสืบสวนสอบสวนในพื้นที่และจะรายงานความคืบหน้าต่อไปตามลำดับขั้น',
+      link: 'https://www.southpeace.go.th/?p=192435',
+      sourceName: 'กอ.รมน.ภาค 4 สน.',
+      sourceTier: 'official-public',
+      publishedAt: '2026-11-27T04:51:17.000Z',
+      provinces: ['สตูล', 'สงขลา'],
+      score: 18,
+    };
+
+    const niaLong = buildNiaProseSummary(longIsocArticle);
+    expect(niaLong.sourceCode).toBe('B2');
+    expect(niaLong.publishedLabel).toContain('27 พ.ย.69');
+    expect(niaLong.paragraph.startsWith('ศูนย์ประชาสัมพันธ์ กอ.รมน.ภาค 4 สน. รายงานเมื่อ 27 พ.ย.69 ว่า')).toBe(true);
+    expect(niaLong.paragraph).toContain('ทั้งนี้');
+    expect(niaLong.paragraph.length).toBeLessThanOrEqual(485);
+
+    const shortHeadlineItem: CuratedNewsItem = {
+      id: 'NEWS-NIA-2',
+      category: 'economy',
+      title: 'ผู้ว่าราชการจังหวัดตรัง ประชุมคณะกรรมการร่วมภาครัฐและเอกชนเพื่อแก้ไขปัญหาทางเศรษฐกิจจังหวัดตรัง',
+      summary: 'ผู้ว่าราชการจังหวัดตรัง ประชุมคณะกรรมการร่วมภาครัฐและเอกชนเพื่อแก้ไขปัญหาทางเศรษฐกิจจังหวัดตรัง',
+      link: 'https://example.com/trang-econ',
+      sourceName: 'NBT CONNEXT',
+      sourceTier: 'official-public',
+      publishedAt: '2026-11-26T07:04:53.000Z',
+      provinces: ['ตรัง'],
+      score: 12,
+    };
+
+    const niaShort = buildNiaProseSummary(shortHeadlineItem);
+    expect(niaShort.paragraph.startsWith('สนข. NBT CONNEXT รายงานเมื่อ 26 พ.ย.69 ว่า')).toBe(true);
+    expect(niaShort.paragraph).toContain('ทั้งนี้');
+
+    const copyText = formatNiaSummaryForCopy(shortHeadlineItem, niaShort);
+    const lines = copyText.split('\n');
+    expect(lines[1]).toContain('เผยแพร่เมื่อ :');
+    expect(lines[3]).toBe('ที่มา : https://example.com/trang-econ');
   });
 });
