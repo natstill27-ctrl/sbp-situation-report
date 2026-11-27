@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Check,
   ChevronDown,
   ChevronUp,
+  ClipboardCopy,
   Clock,
   ExternalLink,
   FilePlus2,
   Filter,
+  ListChecks,
   Newspaper,
   RefreshCw,
   Search,
@@ -21,6 +24,11 @@ import type {
   SourceTier,
 } from '../types/news';
 import { getTargetProvinces } from '../utils/geoLookup';
+import {
+  buildIntelBrief5W1H,
+  formatIntelBrief5W1HText,
+  getSourceReliabilityCode,
+} from '../utils/intelBrief5w1h';
 import {
   NEWS_CATEGORIES,
   NEWS_CATEGORY_MAP,
@@ -52,6 +60,8 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
 
+  const [briefView, setBriefView] = useState<'5w1h' | 'compact'>('5w1h');
+  const [copiedNewsId, setCopiedNewsId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<'all' | NewsCategoryId>('all');
   const [provinceFilter, setProvinceFilter] = useState('');
   const [freshnessHours, setFreshnessHours] = useState<24 | 48 | 72>(72);
@@ -138,13 +148,12 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
   }, [itemsInWindow, categoryFilter, provinceFilter, tierFilter, searchQuery]);
 
   const handleImport = (item: CuratedNewsItem) => {
-    const matchedProvince =
-      item.provinces.find((p) => provinces.includes(p)) || '';
+    const matchedProvince = item.provinces.find((p) => provinces.includes(p)) || '';
     const mappedIncidentCategory = mapNewsCategoryToIncidentCategory(item, settings.categories);
     onImportToIncident({
       newsId: item.id,
       title: item.title,
-      summary: item.summary,
+      summary: formatIntelBrief5W1HText(item),
       link: item.link,
       sourceName: item.sourceName,
       publishedAt: item.publishedAt,
@@ -155,10 +164,20 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
     });
   };
 
+  const handleCopyBrief = async (item: CuratedNewsItem) => {
+    const text = formatIntelBrief5W1HText(item);
+    await navigator.clipboard.writeText(text);
+    setCopiedNewsId(item.id);
+    window.setTimeout(() => {
+      setCopiedNewsId((prev) => (prev === item.id ? null : prev));
+    }, 2000);
+  };
+
   const generatedLabel = feed?.generatedAt
-    ? formatThaiDateTime(new Date(new Date(feed.generatedAt).getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 16), {
-        shortMonth: true,
-      })
+    ? formatThaiDateTime(
+        new Date(new Date(feed.generatedAt).getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 16),
+        { shortMonth: true }
+      )
     : '-';
 
   return (
@@ -169,16 +188,27 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
           <div>
             <div className="news-editorial-pill">
               <ShieldCheck size={15} aria-hidden="true" />
-              <span>คัดกรองเฉพาะสื่อหลักที่ตรงไปตรงมา &amp; สื่อท้องถิ่นเป็นกลาง • ตัดข่าวชาวบ้าน/ดราม่า</span>
+              <span>
+                สรุปข่าวกรอง 5 บรรทัด (หลัก 5W1H แนวทาง สขช.) • คัดสื่อตรงไปตรงมา &amp; ตัดข่าวดราม่า
+              </span>
             </div>
             <h2 id="news-hub-heading" className="section-title" style={{ marginTop: '0.5rem' }}>
               ศูนย์ข่าวกรองรายวัน 7 จังหวัดภาคใต้ตอนล่าง
             </h2>
             <p className="section-subtitle">
-              ติดตามความเคลื่อนไหวรายวันครอบคลุมพื้นที่รับผิดชอบ ผขว.บก.บน.56 (ตรัง พัทลุง สตูล สงขลา ปัตตานี ยะลา นราธิวาส) แยกตาม 5 หมวดข่าวหลัก
+              อ่านเข้าใจครบประเด็นภายใน 5 บรรทัด (What / Who / Where-When / Why-How / ประเมินข่าวกรอง) ครอบคลุมพื้นที่ ผขว.บก.บน.56
             </p>
           </div>
           <div className="news-hub-actions">
+            <button
+              type="button"
+              className={`btn btn-outline news-view-toggle ${briefView === '5w1h' ? 'active' : ''}`}
+              onClick={() => setBriefView((v) => (v === '5w1h' ? 'compact' : '5w1h'))}
+              aria-pressed={briefView === '5w1h'}
+            >
+              <ListChecks size={16} aria-hidden="true" />
+              <span>{briefView === '5w1h' ? 'มุมมองสรุป 5W1H (5 บรรทัด)' : 'มุมมองหัวข้อข่าว'}</span>
+            </button>
             <span className="news-updated-badge">
               <Clock size={14} aria-hidden="true" />
               <span>อัปเดตล่าสุด: {generatedLabel}</span>
@@ -359,56 +389,102 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
         <div className="news-cards-grid">
           {filteredItems.map((item) => {
             const meta = NEWS_CATEGORY_MAP[item.category];
+            const brief = buildIntelBrief5W1H(item);
+            const reliability = getSourceReliabilityCode(item.sourceTier);
             const bkkIso = new Date(new Date(item.publishedAt).getTime() + 7 * 60 * 60 * 1000)
               .toISOString()
               .slice(0, 16);
             return (
               <article key={item.id} className="gov-card news-item-card">
                 <div className="news-card-meta-top">
-                  <span
-                    className="news-cat-badge"
-                    style={{ color: meta.color, backgroundColor: meta.bgColor }}
-                  >
-                    {meta.label}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    <span
+                      className="news-cat-badge"
+                      style={{ color: meta.color, backgroundColor: meta.bgColor }}
+                    >
+                      {meta.label}
+                    </span>
+                    <span className="news-reliability-code" title={reliability.label}>
+                      รหัส {reliability.code}
+                    </span>
+                  </div>
                   <span className="news-age-text" title={formatThaiDateTime(bkkIso)}>
-                    {formatRelativeAge(item.publishedAt, nowMs)} • {formatThaiDateTime(bkkIso)}
+                    {formatRelativeAge(item.publishedAt, nowMs)}
                   </span>
                 </div>
 
-                <h3 className="news-card-title">{item.title}</h3>
-                {item.summary && item.summary !== item.title && (
-                  <p className="news-card-summary">{item.summary}</p>
+                {briefView === '5w1h' ? (
+                  <div className="news-5w1h-list" aria-label="สรุปข่าวกรอง 5 บรรทัดตามหลัก 5W1H">
+                    <div className="news-5w1h-row">
+                      <span className="news-5w1h-tag tag-what">WHAT</span>
+                      <span className="news-5w1h-text strong">{brief.what}</span>
+                    </div>
+                    <div className="news-5w1h-row">
+                      <span className="news-5w1h-tag tag-who">WHO</span>
+                      <span className="news-5w1h-text">{brief.who}</span>
+                    </div>
+                    <div className="news-5w1h-row">
+                      <span className="news-5w1h-tag tag-where">WHERE/WHEN</span>
+                      <span className="news-5w1h-text">{brief.whereWhen}</span>
+                    </div>
+                    <div className="news-5w1h-row">
+                      <span className="news-5w1h-tag tag-why">WHY/HOW</span>
+                      <span className="news-5w1h-text">{brief.whyHow}</span>
+                    </div>
+                    <div className="news-5w1h-row row-assess">
+                      <span className="news-5w1h-tag tag-assess">นัยข่าวกรอง</span>
+                      <span className="news-5w1h-text">{brief.assessment}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h3 className="news-card-title">{item.title}</h3>
+                    {item.summary && item.summary !== item.title && (
+                      <p className="news-card-summary">{item.summary}</p>
+                    )}
+                    <div className="news-card-tags">
+                      {item.provinces.map((p) => (
+                        <span key={p} className="news-prov-chip">
+                          จว.{p}
+                        </span>
+                      ))}
+                      {item.districtHint && (
+                        <span className="news-dist-chip">อ.{item.districtHint}</span>
+                      )}
+                      <span className={`news-tier-badge tier-${item.sourceTier}`}>
+                        {item.sourceName} ({SOURCE_TIER_LABELS[item.sourceTier]})
+                      </span>
+                    </div>
+                  </>
                 )}
 
-                <div className="news-card-tags">
-                  {item.provinces.map((p) => (
-                    <span key={p} className="news-prov-chip">
-                      จว.{p}
-                    </span>
-                  ))}
-                  {item.districtHint && (
-                    <span className="news-dist-chip">อ.{item.districtHint}</span>
-                  )}
-                  <span className={`news-tier-badge tier-${item.sourceTier}`}>
-                    {item.sourceName} ({SOURCE_TIER_LABELS[item.sourceTier]})
-                  </span>
-                </div>
-
                 <div className="news-card-footer">
-                  {item.link ? (
-                    <a
-                      href={item.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {item.link && (
+                      <a
+                        href={item.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-sm btn-outline"
+                      >
+                        <ExternalLink size={14} aria-hidden="true" />
+                        <span>ต้นฉบับ</span>
+                      </a>
+                    )}
+                    <button
+                      type="button"
                       className="btn btn-sm btn-outline"
+                      onClick={() => handleCopyBrief(item)}
+                      title="คัดลอกสรุป 5 บรรทัดตามหลัก 5W1H"
                     >
-                      <ExternalLink size={14} aria-hidden="true" />
-                      <span>อ่านข่าวต้นฉบับ</span>
-                    </a>
-                  ) : (
-                    <span />
-                  )}
+                      {copiedNewsId === item.id ? (
+                        <Check size={14} aria-hidden="true" />
+                      ) : (
+                        <ClipboardCopy size={14} aria-hidden="true" />
+                      )}
+                      <span>{copiedNewsId === item.id ? 'คัดลอกแล้ว' : 'คัดลอก 5W1H'}</span>
+                    </button>
+                  </div>
                   <button
                     type="button"
                     className="btn btn-sm btn-primary"
@@ -435,7 +511,7 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
           <span className="news-transparency-title">
             <Sparkles size={16} aria-hidden="true" />
             <span>
-              เกณฑ์คัดกรองและสถิติแหล่งข่าวรอบล่าสุด
+              หลักการสรุป 5W1H (แนวทาง สขช.) และสถิติคัดกรองแหล่งข่าวรอบล่าสุด
               {feed
                 ? ` (ตรวจ ${feed.stats.totalChecked} • ผ่าน ${feed.stats.acceptedCount} • ตัดดราม่า/ข่าวชาวบ้าน ${feed.stats.excludedDramaCount} • ตัดแหล่งข่าวไม่ผ่านเกณฑ์ ${feed.stats.excludedSourceCount})`
                 : ''}
@@ -446,23 +522,28 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
 
         {showTransparency && (
           <div className="news-transparency-body">
+            <div className="news-5w1h-doctrine-note">
+              <strong>มาตรฐานการสรุปข่าวกรอง 5 บรรทัด (อ้างอิงหลัก BLUF + 5W1H ของสำนักข่าวกรองแห่งชาติ):</strong>{' '}
+              บรรทัดที่ 1 <code>WHAT</code> ระบุข้อเท็จจริงหลักแบบไร้คำพาดหัวหวือหวา • บรรทัดที่ 2{' '}
+              <code>WHO</code> ระบุหน่วย/บุคคลที่เกี่ยวข้อง • บรรทัดที่ 3 <code>WHERE/WHEN</code>{' '}
+              ระบุพื้นที่และห้วงเวลา พ.ศ. • บรรทัดที่ 4 <code>WHY/HOW</code> ระบุสาเหตุ/วิธีการ/ผลปฏิบัติ • บรรทัดที่ 5{' '}
+              <code>นัยข่าวกรอง</code> ประเมินผลกระทบต่อพื้นที่รับผิดชอบ บก.บน.56 พร้อมรหัสความน่าเชื่อถือ{' '}
+              <code>B2</code> (สื่อรัฐ/สาธารณะ), <code>C2</code> (สื่อหลักระดับประเทศ), <code>C3</code> (สื่อท้องถิ่นเป็นกลาง)
+            </div>
             <div className="news-sources-grid">
               <div>
-                <h4>1. สื่อสาธารณะ / หน่วยงานราชการ</h4>
+                <h4>1. สื่อสาธารณะ / หน่วยงานราชการ (รหัส B2)</h4>
                 <p>{vettedSources.official.join(', ')}</p>
               </div>
               <div>
-                <h4>2. สื่อหลักระดับประเทศที่รายงานตรงไปตรงมา</h4>
+                <h4>2. สื่อหลักระดับประเทศที่รายงานตรงไปตรงมา (รหัส C2)</h4>
                 <p>{vettedSources.mainstream.join(', ')}</p>
               </div>
               <div>
-                <h4>3. สื่อท้องถิ่นภาคใต้ที่เป็นกลาง</h4>
+                <h4>3. สื่อท้องถิ่นภาคใต้ที่เป็นกลาง (รหัส C3)</h4>
                 <p>{vettedSources.local.join(', ')}</p>
               </div>
             </div>
-            <p className="field-hint" style={{ marginTop: '0.65rem' }}>
-              ระบบตัดข่าวจากโซเชียลมีเดียไม่มีบรรณาธิการ, ข่าวดราม่าครอบครัว/เพื่อนบ้าน, ข่าวบันเทิง-กีฬา-หวย-ความเชื่อ และจำกัดเฉพาะพื้นที่ 7 จังหวัดภาคใต้ตอนล่างโดยอัตโนมัติ
-            </p>
           </div>
         )}
       </div>

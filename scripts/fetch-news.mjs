@@ -32,6 +32,12 @@ const QUERIES = [
   },
 ];
 
+const SUPPLEMENTARY_FEEDS = [
+  { sourceName: 'ประชาชาติธุรกิจ', url: 'https://www.prachachat.net/feed' },
+  { sourceName: 'Matichon Online', url: 'https://www.matichon.co.th/feed' },
+  { sourceName: 'ไทยโพสต์', url: 'https://www.thaipost.net/feed/' },
+];
+
 function decodeHtmlEntities(str) {
   return String(str || '')
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -40,6 +46,11 @@ function decodeHtmlEntities(str) {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&#8216;/g, '‘')
+    .replace(/&#8217;/g, '’')
+    .replace(/&#8220;/g, '“')
+    .replace(/&#8221;/g, '”')
+    .replace(/&#8230;/g, '…')
     .replace(/&nbsp;/g, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
@@ -51,17 +62,16 @@ function extractTag(block, tagName) {
   return m ? decodeHtmlEntities(m[1]) : '';
 }
 
-function stripTrailingSource(title, sourceName) {
-  if (!sourceName) return title;
-  const suffix = ` - ${sourceName}`;
-  if (title.endsWith(suffix)) {
-    return title.slice(0, -suffix.length).trim();
-  }
-  const idx = title.lastIndexOf(' - ');
-  if (idx > 15 && title.slice(idx + 3).toLowerCase() === sourceName.toLowerCase()) {
-    return title.slice(0, idx).trim();
-  }
-  return title;
+function stripTrailingSource(text, sourceName) {
+  let clean = (text || '').trim();
+  if (!clean || !sourceName) return clean;
+  const escaped = sourceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  clean = clean
+    .replace(new RegExp(`\\s*-\\s*${escaped}\\s*$`, 'i'), '')
+    .replace(new RegExp(`\\s+${escaped}\\s*$`, 'i'), '')
+    .replace(/\s+The post .* appeared first on .*$/i, '')
+    .trim();
+  return clean;
 }
 
 function evaluateNewsSource(rawSourceName, rules) {
@@ -203,6 +213,30 @@ async function fetchRssQuery({ hintCategory, q }) {
   });
 }
 
+async function fetchDirectRss({ sourceName, url }) {
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) return [];
+  const xml = await res.text();
+  const blocks = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)];
+  return blocks.map((m) => {
+    const itemXml = m[1];
+    const title = stripTrailingSource(extractTag(itemXml, 'title'), sourceName);
+    const link = extractTag(itemXml, 'link');
+    const pubDate = extractTag(itemXml, 'pubDate');
+    const desc = stripTrailingSource(extractTag(itemXml, 'description'), sourceName);
+    return {
+      title,
+      summary: desc && desc !== title ? desc : title,
+      link,
+      sourceName,
+      publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
+    };
+  });
+}
+
 async function main() {
   const rules = JSON.parse(await fs.readFile(RULES_PATH, 'utf8'));
   const dramaRegexes = rules.dramaRejectionPatterns.map((p) => new RegExp(p, 'i'));
@@ -216,6 +250,16 @@ async function main() {
       console.log(`Fetched ${items.length} raw items for [${queryDef.hintCategory}]`);
     } catch (err) {
       console.warn(`Warning fetching [${queryDef.hintCategory}]:`, err.message);
+    }
+  }
+
+  for (const feedDef of SUPPLEMENTARY_FEEDS) {
+    try {
+      const items = await fetchDirectRss(feedDef);
+      allCandidates.push(...items);
+      console.log(`Fetched ${items.length} supplementary items from [${feedDef.sourceName}]`);
+    } catch (err) {
+      console.warn(`Warning supplementary [${feedDef.sourceName}]:`, err.message);
     }
   }
 

@@ -64,3 +64,12 @@ export interface NewsToIncidentDraft {
   province: string;
   district: string;
 }
+
+export interface IntelBrief5W1H {
+  what: string;
+  who: string;
+  whereWhen: string;
+  whyHow: string;
+  assessment: string;
+  sourceCode: string;
+}
