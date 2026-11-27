@@ -13,7 +13,6 @@ import {
   RefreshCw,
   Rss,
   Search,
-  ShieldCheck,
   Sparkles,
 } from 'lucide-react';
 import type { AppSettings } from '../types/incident';
@@ -219,17 +218,11 @@ export function NewsHubPage({
       <div className="gov-card news-hub-hero">
         <div className="news-hub-hero-top">
           <div>
-            <div className="news-editorial-pill">
-              <ShieldCheck size={15} aria-hidden="true" />
-              <span>
-                สรุปข่าวกรองแบบ สขช. (4–5 บรรทัด ครบหลัก 5W1H) • คัดสื่อตรงไปตรงมา &amp; ตัดข่าวดราม่า
-              </span>
-            </div>
-            <h2 id="news-hub-heading" className="section-title" style={{ marginTop: '0.5rem' }}>
+            <h2 id="news-hub-heading" className="section-title">
               ศูนย์ข่าวกรองรายวัน 7 จังหวัดภาคใต้ตอนล่าง (7 หมวดข่าวกรอง)
             </h2>
             <p className="section-subtitle">
-              สรุปเนื้อหาข่าวให้เข้าใจครบภายใน 1 ย่อหน้า (4–5 บรรทัด) ตามรูปแบบสำนักข่าวกรองแห่งชาติ ครอบคลุมพื้นที่ ผขว.บก.บน.56 ทั้งด้านการเมือง เศรษฐกิจ สังคม ยาเสพติด ความมั่นคง อากาศ/ภัยพิบัติ และแรงงานต่างด้าว
+              สรุปเนื้อหาข่าวเข้าใจง่ายภายใน 1 ย่อหน้า ครอบคลุมพื้นที่รับผิดชอบของ บน.56 ทั้งด้านการเมือง เศรษฐกิจ สังคม ยาเสพติด ความมั่นคง อากาศ/ภัยพิบัติ และแรงงานต่างด้าว
             </p>
           </div>
           <div className="news-hub-actions">
@@ -240,7 +233,7 @@ export function NewsHubPage({
               aria-pressed={briefView === 'nia'}
             >
               <ListChecks size={16} aria-hidden="true" />
-              <span>{briefView === 'nia' ? 'มุมมองสรุปแบบ สขช.' : 'มุมมองแยกช่อง 5W1H'}</span>
+              <span>{briefView === 'nia' ? 'มุมมองสรุปย่อหน้าเดียว' : 'มุมมองแยกหัวข้อข่าว'}</span>
             </button>
             <span className="news-updated-badge">
               <Clock size={14} aria-hidden="true" />
@@ -526,7 +519,7 @@ export function NewsHubPage({
                       type="button"
                       className="btn btn-sm btn-outline"
                       onClick={() => handleCopyBrief(item)}
-                      title="คัดลอกสรุปข่าวตามรูปแบบ สขช."
+                      title="คัดลอกสรุปข่าว"
                     >
                       {copiedNewsId === item.id ? (
                         <Check size={14} aria-hidden="true" />
@@ -562,7 +555,7 @@ export function NewsHubPage({
           <span className="news-transparency-title">
             <Sparkles size={16} aria-hidden="true" />
             <span>
-              หลักการสรุป 5W1H (แนวทาง สขช.) และสถิติคัดกรองแหล่งข่าวรอบล่าสุด
+              เกณฑ์การคัดกรองและสถิติแหล่งข่าวรอบล่าสุด
               {feed
                 ? ` (ตรวจ ${feed.stats.totalChecked} • ผ่าน ${feed.stats.acceptedCount} • ตัดดราม่า/ข่าวชาวบ้าน ${feed.stats.excludedDramaCount} • ตัดแหล่งข่าวไม่ผ่านเกณฑ์ ${feed.stats.excludedSourceCount})`
                 : ''}
