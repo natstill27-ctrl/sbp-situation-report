@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, KeyRound, Lock, Settings, ShieldCheck, X } from 'lucide-react';
 import { verifyStaffPinWithGas } from '../utils/dailyLogGasSync';
+import { useModalFocusTrap } from '../utils/useModalFocusTrap';
 
 interface StaffAuthModalProps {
   open: boolean;
@@ -20,23 +21,20 @@ export function StaffAuthModal({
   const [pin, setPin] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState('');
+  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   const cleanDailyUrl = dailyLogGasUrl.trim();
   const isConfigured = Boolean(cleanDailyUrl);
+
+  useModalFocusTrap(open, dialogRef, onClose);
 
   useEffect(() => {
     if (!open) {
       setPin('');
       setError('');
       setVerifying(false);
-      return;
     }
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -69,10 +67,12 @@ export function StaffAuthModal({
       }}
     >
       <div
+        ref={dialogRef}
         className="gov-modal-dialog gov-auth-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="staff-auth-title"
+        tabIndex={-1}
       >
         <div className="gov-modal-header">
           <div>
@@ -95,13 +95,12 @@ export function StaffAuthModal({
           {isConfigured ? (
             <form onSubmit={handleSubmit}>
               <p className="gov-compliance-lead">
-                กรอกรหัสผ่าน/PIN ที่ตั้งไว้ใน <code>STAFF_PIN</code> ของ Google Apps Script แผนก
-                เพื่อเปิดใช้งานเมนูบันทึกประจำวัน, ปฏิบัติการ IPB และการตั้งค่าระบบ (ระบบจะล็อกกลับอัตโนมัติเมื่อปิดแท็บเบราว์เซอร์)
+                กรอกรหัสผ่านเจ้าหน้าที่แผนกข่าวกรอง กองบิน 56 เพื่อเปิดใช้งานหน้าบันทึกประจำวัน, งานวิเคราะห์ IPB และการตั้งค่าระบบ (ระบบจะล็อกกลับอัตโนมัติเมื่อปิดหน้าต่างเบราว์เซอร์)
               </p>
 
               <div className="form-group">
                 <label htmlFor="staff-pin-input" className="form-label required">
-                  รหัสผ่านเจ้าหน้าที่ (STAFF PIN)
+                  รหัสผ่านเจ้าหน้าที่
                 </label>
                 <div className="input-with-icon">
                   <KeyRound size={16} aria-hidden="true" />
@@ -132,7 +131,7 @@ export function StaffAuthModal({
               <div className="form-actions">
                 <button type="submit" className="btn btn-primary" disabled={verifying}>
                   <ShieldCheck size={16} aria-hidden="true" />
-                  <span>{verifying ? 'กำลังตรวจสอบกับ GAS...' : 'ยืนยันสิทธิ์เจ้าหน้าที่'}</span>
+                  <span>{verifying ? 'กำลังตรวจสอบรหัส...' : 'ยืนยันสิทธิ์เจ้าหน้าที่'}</span>
                 </button>
                 <button type="button" className="btn btn-outline" onClick={onClose}>
                   ยกเลิก
@@ -145,13 +144,12 @@ export function StaffAuthModal({
                 <Lock size={17} aria-hidden="true" />
                 <span>
                   {hasLegacyGasUrl
-                    ? 'ตรวจพบ URL ระบบ IPB เดิม แต่ยังไม่ได้ตั้งค่า Web App URL ของชีทบันทึกประจำวันแผนก (Wing56DailyLog.gs)'
-                    : 'เบราว์เซอร์นี้ยังไม่ได้ตั้งค่า URL เชื่อมต่อ Google Apps Script ของแผนก'}
+                    ? 'ตรวจพบการเชื่อมต่อระบบเดิม แต่เครื่องนี้ยังไม่ได้เชื่อมลิงก์ชีทบันทึกประจำวันของแผนก'
+                    : 'เบราว์เซอร์นี้ยังไม่ได้ตั้งค่าลิงก์เชื่อมต่อระบบฐานข้อมูลของแผนก'}
                 </span>
               </div>
               <p className="gov-compliance-lead">
-                เข้าสู่หน้าตั้งค่าเพื่อวาง URL ของ <code>Wing56DailyLog.gs</code> (หลังตั้งค่า{' '}
-                <code>STAFF_PIN</code> ใน Script Properties แล้ว ระบบจะล็อกการเข้าถึงด้วยรหัสผ่านฝั่ง GAS ทันที)
+                ผู้ดูแลระบบสามารถเข้าไปวางลิงก์เชื่อมต่อในหน้าตั้งค่า (เมื่อเชื่อมระบบแล้ว ระบบจะเปิดให้ยืนยันรหัสผ่านเจ้าหน้าที่ทุกครั้งก่อนเข้าใช้งาน)
               </p>
               <div className="form-actions">
                 <button
@@ -160,7 +158,7 @@ export function StaffAuthModal({
                   onClick={() => onUnlockSuccess('', true)}
                 >
                   <Settings size={16} aria-hidden="true" />
-                  <span>ไปหน้าตั้งค่าเพื่อเชื่อม Google Sheet แผนก</span>
+                  <span>ไปหน้าตั้งค่าเชื่อมต่อระบบ</span>
                 </button>
                 <button type="button" className="btn btn-outline" onClick={onClose}>
                   ปิด

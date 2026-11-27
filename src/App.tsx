@@ -1,14 +1,15 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { ShieldAlert, X } from 'lucide-react';
 import { GovComplianceModal, type ComplianceModalTab } from './components/GovComplianceModal';
 import { GovFooter } from './components/GovFooter';
 import {
   GovBreadcrumb,
   GovHeader,
+  W56MobileBottomNav,
   W56Sidebar,
   type ActiveTab,
   type FontSizeMode,
 } from './components/GovHeader';
-import { IncidentFormPage } from './components/IncidentFormPage';
 import { StaffAuthModal } from './components/StaffAuthModal';
 import { DEFAULT_SETTINGS, buildSampleIncidents } from './data/defaults';
 import type { AppSettings, IncidentRecord, WatchAlertRecord } from './types/incident';
@@ -24,12 +25,7 @@ import {
   pullDailyLogsFromGas,
   sendDailyLogToGas,
 } from './utils/dailyLogGasSync';
-import {
-  pullIncidentsFromGas,
-  sendIncidentToGas,
-  sendWatchAlertToGas,
-  type GasPullResult,
-} from './utils/gasSync';
+import type { GasPullResult, GasSyncResult } from './utils/gasSync';
 import {
   clearAllIncidents,
   deleteDailyLog,
@@ -47,6 +43,11 @@ import {
   saveWatchAlert,
   saveWatchAlertsBatch,
 } from './utils/storage';
+import { useModalFocusTrap } from './utils/useModalFocusTrap';
+
+const IncidentFormPage = lazy(() =>
+  import('./components/IncidentFormPage').then((m) => ({ default: m.IncidentFormPage }))
+);
 
 const NewsHubPage = lazy(() =>
   import('./components/NewsHubPage').then((m) => ({ default: m.NewsHubPage }))
@@ -89,6 +90,23 @@ function formatClockHHmm(date: Date): string {
   return `${hh}.${mm}`;
 }
 
+function applyIncidentSyncResult(record: IncidentRecord, syncRes: GasSyncResult): IncidentRecord {
+  const returnedRow =
+    syncRes.responseData &&
+    typeof syncRes.responseData === 'object' &&
+    'legacyRowNumber' in syncRes.responseData
+      ? Number((syncRes.responseData as Record<string, unknown>).legacyRowNumber)
+      : undefined;
+  return {
+    ...record,
+    syncStatus: syncRes.ok ? 'synced' : 'failed',
+    lastSyncAttempt: new Date().toISOString(),
+    syncError: syncRes.ok ? undefined : syncRes.message,
+    legacyRowNumber:
+      returnedRow && Number.isFinite(returnedRow) ? returnedRow : record.legacyRowNumber,
+  };
+}
+
 export function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('news-hub');
   const [incidents, setIncidents] = useState<IncidentRecord[]>([]);
@@ -108,6 +126,10 @@ export function App() {
   const [lastSavedRecord, setLastSavedRecord] = useState<IncidentRecord | null>(null);
   const [lastPulledAt, setLastPulledAt] = useState<string | null>(null);
   const [startupNotice, setStartupNotice] = useState<string>('');
+  const [pendingHashConfig, setPendingHashConfig] = useState<Partial<AppSettings> | null>(null);
+  const hashDialogRef = useRef<HTMLDivElement | null>(null);
+
+  useModalFocusTrap(Boolean(pendingHashConfig), hashDialogRef, () => setPendingHashConfig(null));
 
   const [themeDark, setThemeDark] = useState<boolean>(() => {
     try {
@@ -152,25 +174,16 @@ export function App() {
         ]);
       if (!active) return;
 
-      let effectiveSettings = loadedSettings;
+      const effectiveSettings = loadedSettings;
       const hashConfig = decodeConfigHash(window.location.hash);
       if (hashConfig) {
-        effectiveSettings = {
-          ...loadedSettings,
-          ...hashConfig,
-          fieldMapping: {
-            ...loadedSettings.fieldMapping,
-            ...(hashConfig.fieldMapping || {}),
-          },
-        };
-        await saveSettings(effectiveSettings);
         window.history.replaceState(
           null,
           '',
           `${window.location.pathname}${window.location.search}`
         );
         if (active) {
-          setStartupNotice('นำเข้าการตั้งค่าเชื่อมต่อระบบจากลิงก์เรียบร้อยแล้ว');
+          setPendingHashConfig(hashConfig);
         }
       }
 
@@ -182,6 +195,7 @@ export function App() {
 
       const syncUrl = (effectiveSettings.gasFetchUrl || effectiveSettings.gasWebhookUrl).trim();
       if (effectiveSettings.autoPullOnLoad && syncUrl) {
+        const { pullIncidentsFromGas } = await import('./utils/gasSync');
         const pullRes = await pullIncidentsFromGas(effectiveSettings);
         if (active && pullRes.ok) {
           if (pullRes.records.length > 0) {
@@ -390,23 +404,9 @@ export function App() {
     upsertLocalIncident(finalRecord);
 
     if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
+      const { sendIncidentToGas } = await import('./utils/gasSync');
       const syncRes = await sendIncidentToGas(finalRecord, settings);
-      const returnedRow =
-        syncRes.responseData &&
-        typeof syncRes.responseData === 'object' &&
-        'legacyRowNumber' in syncRes.responseData
-          ? Number((syncRes.responseData as Record<string, unknown>).legacyRowNumber)
-          : undefined;
-      finalRecord = {
-        ...finalRecord,
-        syncStatus: syncRes.ok ? 'synced' : 'failed',
-        lastSyncAttempt: new Date().toISOString(),
-        syncError: syncRes.ok ? undefined : syncRes.message,
-        legacyRowNumber:
-          returnedRow && Number.isFinite(returnedRow)
-            ? returnedRow
-            : finalRecord.legacyRowNumber,
-      };
+      finalRecord = applyIncidentSyncResult(finalRecord, syncRes);
       await saveIncident(finalRecord);
       upsertLocalIncident(finalRecord);
     }
@@ -421,25 +421,11 @@ export function App() {
     setIncidents(await loadIncidents());
 
     if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
+      const { sendIncidentToGas } = await import('./utils/gasSync');
       const updatedRecords: IncidentRecord[] = [];
       for (const rec of records) {
         const syncRes = await sendIncidentToGas(rec, settings);
-        const returnedRow =
-          syncRes.responseData &&
-          typeof syncRes.responseData === 'object' &&
-          'legacyRowNumber' in syncRes.responseData
-            ? Number((syncRes.responseData as Record<string, unknown>).legacyRowNumber)
-            : undefined;
-        updatedRecords.push({
-          ...rec,
-          syncStatus: syncRes.ok ? 'synced' : 'failed',
-          lastSyncAttempt: new Date().toISOString(),
-          syncError: syncRes.ok ? undefined : syncRes.message,
-          legacyRowNumber:
-            returnedRow && Number.isFinite(returnedRow)
-              ? returnedRow
-              : rec.legacyRowNumber,
-        });
+        updatedRecords.push(applyIncidentSyncResult(rec, syncRes));
       }
       await saveIncidentsBatch(updatedRecords);
       setIncidents(await loadIncidents());
@@ -461,23 +447,9 @@ export function App() {
     upsertLocalIncident(updated);
 
     if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
+      const { sendIncidentToGas } = await import('./utils/gasSync');
       const syncRes = await sendIncidentToGas(updated, settings);
-      const returnedRow =
-        syncRes.responseData &&
-        typeof syncRes.responseData === 'object' &&
-        'legacyRowNumber' in syncRes.responseData
-          ? Number((syncRes.responseData as Record<string, unknown>).legacyRowNumber)
-          : undefined;
-      updated = {
-        ...updated,
-        syncStatus: syncRes.ok ? 'synced' : 'failed',
-        lastSyncAttempt: new Date().toISOString(),
-        syncError: syncRes.ok ? undefined : syncRes.message,
-        legacyRowNumber:
-          returnedRow && Number.isFinite(returnedRow)
-            ? returnedRow
-            : updated.legacyRowNumber,
-      };
+      updated = applyIncidentSyncResult(updated, syncRes);
       await saveIncident(updated);
       upsertLocalIncident(updated);
     }
@@ -497,25 +469,11 @@ export function App() {
     setIncidents(await loadIncidents());
 
     if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
+      const { sendIncidentToGas } = await import('./utils/gasSync');
       const updatedRecords: IncidentRecord[] = [];
       for (const rec of stamped) {
         const syncRes = await sendIncidentToGas(rec, settings);
-        const returnedRow =
-          syncRes.responseData &&
-          typeof syncRes.responseData === 'object' &&
-          'legacyRowNumber' in syncRes.responseData
-            ? Number((syncRes.responseData as Record<string, unknown>).legacyRowNumber)
-            : undefined;
-        updatedRecords.push({
-          ...rec,
-          syncStatus: syncRes.ok ? 'synced' : 'failed',
-          lastSyncAttempt: new Date().toISOString(),
-          syncError: syncRes.ok ? undefined : syncRes.message,
-          legacyRowNumber:
-            returnedRow && Number.isFinite(returnedRow)
-              ? returnedRow
-              : rec.legacyRowNumber,
-        });
+        updatedRecords.push(applyIncidentSyncResult(rec, syncRes));
       }
       await saveIncidentsBatch(updatedRecords);
       setIncidents(await loadIncidents());
@@ -526,13 +484,9 @@ export function App() {
   };
 
   const handleRetrySyncOne = async (record: IncidentRecord) => {
+    const { sendIncidentToGas } = await import('./utils/gasSync');
     const syncRes = await sendIncidentToGas(record, settings);
-    const updated: IncidentRecord = {
-      ...record,
-      syncStatus: syncRes.ok ? 'synced' : 'failed',
-      lastSyncAttempt: new Date().toISOString(),
-      syncError: syncRes.ok ? undefined : syncRes.message,
-    };
+    const updated = applyIncidentSyncResult(record, syncRes);
     await saveIncident(updated);
     upsertLocalIncident(updated);
   };
@@ -576,6 +530,7 @@ export function App() {
     setWatchAlerts(await loadWatchAlerts());
 
     if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
+      const { sendWatchAlertToGas } = await import('./utils/gasSync');
       const syncRes = await sendWatchAlertToGas(savedRecord, settings);
       savedRecord = {
         ...savedRecord,
@@ -597,6 +552,7 @@ export function App() {
     setWatchAlerts(await loadWatchAlerts());
 
     if (settings.autoSyncOnSave && settings.gasWebhookUrl.trim()) {
+      const { sendWatchAlertToGas } = await import('./utils/gasSync');
       const updatedAlerts: WatchAlertRecord[] = [];
       for (const item of alerts) {
         const syncRes = await sendWatchAlertToGas(item, settings);
@@ -621,6 +577,7 @@ export function App() {
 
   const handlePullFromGas = async (overrideSettings?: AppSettings): Promise<GasPullResult> => {
     const activeSettings = overrideSettings || settings;
+    const { pullIncidentsFromGas } = await import('./utils/gasSync');
     const res = await pullIncidentsFromGas(activeSettings);
     if (res.ok) {
       if (res.records.length > 0) {
@@ -645,8 +602,33 @@ export function App() {
     setActiveTab('news-hub');
   };
 
+  const handleConfirmPendingConfig = async () => {
+    if (!pendingHashConfig) return;
+    const nextSettings: AppSettings = {
+      ...settings,
+      ...pendingHashConfig,
+      fieldMapping: {
+        ...settings.fieldMapping,
+        ...(pendingHashConfig.fieldMapping || {}),
+      },
+    };
+    setPendingHashConfig(null);
+    await saveSettings(nextSettings);
+    setSettings(nextSettings);
+    setStartupNotice('นำเข้าการตั้งค่าเชื่อมต่อระบบจากลิงก์เรียบร้อยแล้ว');
+    if (nextSettings.autoPullOnLoad && (nextSettings.gasFetchUrl || nextSettings.gasWebhookUrl).trim()) {
+      await handlePullFromGas(nextSettings);
+    }
+    if (nextSettings.dailyLogGasUrl?.trim()) {
+      await handlePullDailyLogs(nextSettings);
+    }
+  };
+
   return (
     <div className="w56-app-layout">
+      <a href="#main-content" className="skip-link">
+        ข้ามไปยังเนื้อหาหลัก
+      </a>
       <W56Sidebar
         activeTab={effectiveTab}
         onChangeTab={handleSelectTab}
@@ -722,6 +704,8 @@ export function App() {
                     requestedCategory={requestedNewsCategory}
                     onConsumeRequestedCategory={() => setRequestedNewsCategory(null)}
                     onCategoryChange={setActiveNewsCategory}
+                    onOpenUnifiedMap={() => handleSelectTab('unified-map')}
+                    onOpenHelp={() => setComplianceModal('faq')}
                     onImportToDailyLog={(draft) => {
                       setDailyLogDraft(draft);
                       setActiveTab('daily-log');
@@ -856,7 +840,94 @@ export function App() {
           onClose={() => setStaffAuthModalOpen(false)}
           onUnlockSuccess={handleUnlockStaffSuccess}
         />
+
+        {pendingHashConfig && (
+          <div
+            className="gov-modal-backdrop"
+            role="presentation"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setPendingHashConfig(null);
+            }}
+          >
+            <div
+              ref={hashDialogRef}
+              className="gov-modal-dialog gov-auth-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="config-import-title"
+              tabIndex={-1}
+            >
+              <div className="gov-modal-header">
+                <div>
+                  <p className="gov-modal-kicker">การนำเข้าการตั้งค่าจากลิงก์</p>
+                  <h2 id="config-import-title" className="gov-modal-title">
+                    ยืนยันการเปลี่ยนการตั้งค่าเชื่อมต่อระบบ
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  className="gov-modal-close"
+                  onClick={() => setPendingHashConfig(null)}
+                  aria-label="ปิดหน้าต่าง"
+                >
+                  <X size={18} aria-hidden="true" />
+                </button>
+              </div>
+              <div className="gov-modal-body">
+                <div className="inline-alert warn" style={{ marginBottom: '0.85rem' }}>
+                  <ShieldAlert size={18} aria-hidden="true" />
+                  <span>
+                    ตรวจพบการตั้งค่าแนบมากับลิงก์ กรุณาตรวจสอบปลายทางก่อนกดยืนยัน (หากไม่รู้จักผู้ส่งลิงก์ให้กดยกเลิก)
+                  </span>
+                </div>
+                <ul className="gov-policy-list" style={{ marginBottom: '1rem', fontSize: '0.86rem' }}>
+                  {pendingHashConfig.agencyName && (
+                    <li>
+                      <strong>หน่วยงาน:</strong> {pendingHashConfig.agencyName}
+                    </li>
+                  )}
+                  {pendingHashConfig.dailyLogGasUrl && (
+                    <li>
+                      <strong>ลิงก์ชีทบันทึกประจำวัน:</strong>{' '}
+                      <code style={{ wordBreak: 'break-all' }}>{pendingHashConfig.dailyLogGasUrl}</code>
+                    </li>
+                  )}
+                  {pendingHashConfig.gasWebhookUrl && (
+                    <li>
+                      <strong>ลิงก์เชื่อมต่อระบบ IPB:</strong>{' '}
+                      <code style={{ wordBreak: 'break-all' }}>{pendingHashConfig.gasWebhookUrl}</code>
+                    </li>
+                  )}
+                </ul>
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => void handleConfirmPendingConfig()}
+                  >
+                    ยืนยันนำเข้าการตั้งค่า
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    onClick={() => setPendingHashConfig(null)}
+                  >
+                    ยกเลิก
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+
+      <W56MobileBottomNav
+        activeTab={effectiveTab}
+        staffUnlocked={staffUnlocked}
+        onChangeTab={handleSelectTab}
+        onOpenHelp={() => setComplianceModal('faq')}
+        onOpenMenu={() => setMobileSidebarOpen(true)}
+      />
     </div>
   );
 }

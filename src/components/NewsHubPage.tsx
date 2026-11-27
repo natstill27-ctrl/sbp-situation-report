@@ -8,14 +8,16 @@ import {
   ExternalLink,
   FilePlus2,
   Filter,
+  Globe2,
+  HelpCircle,
   ListChecks,
   Newspaper,
   NotebookPen,
   RefreshCw,
-  Rss,
   Search,
   Sparkles,
 } from 'lucide-react';
+import { TARGET_PROVINCES } from '../data/geoMeta';
 import type { AppSettings } from '../types/incident';
 import type {
   CuratedNewsItem,
@@ -25,7 +27,7 @@ import type {
   NewsToIncidentDraft,
   SourceTier,
 } from '../types/news';
-import { getTargetProvinces } from '../utils/geoLookup';
+import { copyTextToClipboard } from '../utils/clipboard';
 import {
   buildIntelBrief5W1H,
   buildNiaProseSummary,
@@ -40,7 +42,8 @@ import {
   mapNewsCategoryToIncidentCategory,
 } from '../utils/newsCurator';
 import { fetchDailyNewsFeed, getVettedSourcesSummary } from '../utils/newsFeedClient';
-import { formatThaiDateTime } from '../utils/thaiDate';
+import { sanitizeHttpUrl } from '../utils/safeHtml';
+import { formatThaiDateTime, toBangkokIso16 } from '../utils/thaiDateFormat';
 
 interface NewsHubPageProps {
   settings: AppSettings;
@@ -48,6 +51,8 @@ interface NewsHubPageProps {
   requestedCategory?: 'all' | NewsCategoryId | null;
   onConsumeRequestedCategory?: () => void;
   onCategoryChange?: (category: 'all' | NewsCategoryId) => void;
+  onOpenUnifiedMap?: () => void;
+  onOpenHelp?: () => void;
   onImportToDailyLog?: (draft: DailyLogDraft) => void;
   onImportToIncident: (draft: NewsToIncidentDraft) => void;
 }
@@ -69,6 +74,8 @@ export function NewsHubPage({
   requestedCategory,
   onConsumeRequestedCategory,
   onCategoryChange,
+  onOpenUnifiedMap,
+  onOpenHelp,
   onImportToDailyLog,
   onImportToIncident,
 }: NewsHubPageProps) {
@@ -86,10 +93,21 @@ export function NewsHubPage({
   const [tierFilter, setTierFilter] = useState<'' | SourceTier>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showTransparency, setShowTransparency] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(12);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
-  const provinces = useMemo(() => getTargetProvinces(), []);
+  const provinces = useMemo<string[]>(() => [...TARGET_PROVINCES], []);
   const vettedSources = useMemo(() => getVettedSourcesSummary(), []);
   const hasGasUrl = Boolean((settings.gasFetchUrl || settings.gasWebhookUrl).trim());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    setVisibleCount(12);
+  }, [categoryFilter, isocOnly, provinceFilter, freshnessHours, tierFilter, searchQuery]);
 
   useEffect(() => {
     if (requestedCategory) {
@@ -106,6 +124,7 @@ export function NewsHubPage({
     setLoadError('');
     const result = await fetchDailyNewsFeed(settings, opts);
     setFeed(result.feed);
+    setNowMs(Date.now());
     if (result.error) {
       setLoadError(result.error);
     }
@@ -118,6 +137,7 @@ export function NewsHubPage({
       const result = await fetchDailyNewsFeed(settings, { preferLiveGas: hasGasUrl });
       if (!active) return;
       setFeed(result.feed);
+      setNowMs(Date.now());
       if (result.error) setLoadError(result.error);
       setLoading(false);
     })();
@@ -134,8 +154,6 @@ export function NewsHubPage({
       setRefreshing(false);
     }
   };
-
-  const nowMs = Date.now();
 
   const itemsInWindow = useMemo(() => {
     if (!feed) return [];
@@ -230,18 +248,18 @@ export function NewsHubPage({
   const handleCopyBrief = async (item: CuratedNewsItem) => {
     const text =
       briefView === 'nia' ? formatNiaSummaryForCopy(item) : formatIntelBrief5W1HText(item);
-    await navigator.clipboard.writeText(text);
-    setCopiedNewsId(item.id);
-    window.setTimeout(() => {
-      setCopiedNewsId((prev) => (prev === item.id ? null : prev));
-    }, 2000);
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      setCopiedNewsId(item.id);
+      window.setTimeout(() => {
+        setCopiedNewsId((prev) => (prev === item.id ? null : prev));
+      }, 2000);
+    }
   };
 
-  const generatedLabel = feed?.generatedAt
-    ? formatThaiDateTime(
-        new Date(new Date(feed.generatedAt).getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 16),
-        { shortMonth: true }
-      )
+  const generatedBkkIso = toBangkokIso16(feed?.generatedAt);
+  const generatedLabel = generatedBkkIso
+    ? formatThaiDateTime(generatedBkkIso, { shortMonth: true })
     : '-';
 
   return (
@@ -251,13 +269,25 @@ export function NewsHubPage({
         <div className="news-hub-hero-top">
           <div>
             <h2 id="news-hub-heading" className="section-title">
-              ศูนย์ข่าวกรองรายวัน 7 จังหวัดภาคใต้ตอนล่าง (7 หมวดข่าวกรอง)
+              ศูนย์ข่าวกรองรายวัน 7 จังหวัดภาคใต้ตอนล่าง
             </h2>
             <p className="section-subtitle">
-              สรุปเนื้อหาข่าวเข้าใจง่ายภายใน 1 ย่อหน้า ครอบคลุมพื้นที่รับผิดชอบของ บน.56 ทั้งด้านการเมือง เศรษฐกิจ สังคม ยาเสพติด ความมั่นคง อากาศ/ภัยพิบัติ และแรงงานต่างด้าว
+              รวมข่าวคัดกรองที่เชื่อถือได้ สรุปสั้นอ่านเข้าใจง่ายใน 1 ย่อหน้า กดเลือกหมวดข่าวหรือจังหวัดที่ต้องการได้ทันที
             </p>
           </div>
           <div className="news-hub-actions">
+            {onOpenUnifiedMap && (
+              <button type="button" className="btn btn-outline" onClick={onOpenUnifiedMap}>
+                <Globe2 size={16} aria-hidden="true" />
+                <span>ดูแผนที่ 7 จังหวัด</span>
+              </button>
+            )}
+            {onOpenHelp && (
+              <button type="button" className="btn btn-outline" onClick={onOpenHelp}>
+                <HelpCircle size={16} aria-hidden="true" />
+                <span>วิธีใช้งานเบื้องต้น</span>
+              </button>
+            )}
             <button
               type="button"
               className={`btn btn-outline news-view-toggle ${briefView === 'nia' ? 'active' : ''}`}
@@ -265,23 +295,12 @@ export function NewsHubPage({
               aria-pressed={briefView === 'nia'}
             >
               <ListChecks size={16} aria-hidden="true" />
-              <span>{briefView === 'nia' ? 'มุมมองสรุปย่อหน้าเดียว' : 'มุมมองแยกหัวข้อข่าว'}</span>
+              <span>{briefView === 'nia' ? 'รูปแบบ: ย่อหน้าเดียว' : 'รูปแบบ: แยกหัวข้อ'}</span>
             </button>
             <span className="news-updated-badge">
               <Clock size={14} aria-hidden="true" />
               <span>อัปเดตล่าสุด: {generatedLabel}</span>
             </span>
-            <a
-              href="./daily-news.xml"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn-outline"
-              aria-label="เปิดฟีดข่าวมาตรฐาน RSS 2.0 (XML)"
-              title="ฟีดข่าวมาตรฐาน RSS 2.0 (มสพร. 11-2566)"
-            >
-              <Rss size={16} aria-hidden="true" />
-              <span>RSS 2.0</span>
-            </a>
             <button
               type="button"
               className="btn btn-primary"
@@ -294,8 +313,21 @@ export function NewsHubPage({
           </div>
         </div>
 
-        {/* 7-Category KPI Selector Cards */}
-        <div className="news-kpi-grid" role="group" aria-label="ตัวกรอง 7 หมวดข่าวกรอง">
+        {/* Balanced 8-Card Selector Grid (All + 7 Categories = 4x2) */}
+        <div className="news-kpi-grid" role="group" aria-label="ตัวกรองหมวดข่าวกรอง">
+          <button
+            type="button"
+            className={`news-kpi-card news-kpi-card-all ${categoryFilter === 'all' ? 'active' : ''}`}
+            style={{ '--cat-color': '#1d5bb8', '--cat-bg': '#e8f0fc' } as React.CSSProperties}
+            onClick={() => setCategoryFilter('all')}
+            aria-pressed={categoryFilter === 'all'}
+          >
+            <div className="news-kpi-top">
+              <span className="news-kpi-label">ข่าวทั้งหมดทุกหมวด</span>
+              <span className="news-kpi-count">{itemsInWindow.length}</span>
+            </div>
+            <p className="news-kpi-desc">แสดงข่าวคัดกรองทั้ง 7 หมวดใน 7 จังหวัดภาคใต้ตอนล่าง</p>
+          </button>
           {NEWS_CATEGORIES.map((cat) => {
             const active = categoryFilter === cat.id;
             return (
@@ -320,46 +352,50 @@ export function NewsHubPage({
 
       {/* Filter Bar */}
       <div className="gov-card news-filter-bar">
-        <div className="news-cat-pills" role="tablist" aria-label="เลือกหมวดข่าว">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={categoryFilter === 'all'}
-            className={`news-cat-pill ${categoryFilter === 'all' ? 'active' : ''}`}
-            onClick={() => setCategoryFilter('all')}
-          >
-            <span>ทั้งหมด</span>
-            <span className="news-pill-count">{itemsInWindow.length}</span>
-          </button>
-          {NEWS_CATEGORIES.map((cat) => (
+        <div className="news-pills-toolbar">
+          <div className="news-cat-pills" role="tablist" aria-label="เลือกหมวดข่าว">
             <button
-              key={cat.id}
               type="button"
               role="tab"
-              aria-selected={categoryFilter === cat.id}
-              className={`news-cat-pill ${categoryFilter === cat.id ? 'active' : ''}`}
-              onClick={() => setCategoryFilter(cat.id)}
+              aria-selected={categoryFilter === 'all'}
+              className={`news-cat-pill ${categoryFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setCategoryFilter('all')}
             >
-              <span>{cat.shortLabel}</span>
-              <span className="news-pill-count">{categoryCounts[cat.id]}</span>
+              <span>ทั้งหมด</span>
+              <span className="news-pill-count">{itemsInWindow.length}</span>
             </button>
-          ))}
-          <button
-            type="button"
-            className={`news-cat-pill ${isocOnly ? 'active' : ''}`}
-            aria-pressed={isocOnly}
-            onClick={() => {
-              const next = !isocOnly;
-              setIsocOnly(next);
-              if (next && freshnessHours < 168) {
-                setFreshnessHours(168);
-              }
-            }}
-            title="กรองเฉพาะข่าวทางการจากศูนย์ประชาสัมพันธ์ กอ.รมน.ภาค 4 สน. (southpeace.go.th)"
-          >
-            <span>เฉพาะ กอ.รมน.ภาค 4 สน.</span>
-            <span className="news-pill-count">{isocCount}</span>
-          </button>
+            {NEWS_CATEGORIES.map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                role="tab"
+                aria-selected={categoryFilter === cat.id}
+                className={`news-cat-pill ${categoryFilter === cat.id ? 'active' : ''}`}
+                onClick={() => setCategoryFilter(cat.id)}
+              >
+                <span>{cat.shortLabel}</span>
+                <span className="news-pill-count">{categoryCounts[cat.id]}</span>
+              </button>
+            ))}
+          </div>
+          <div className="news-filter-extra-chips">
+            <button
+              type="button"
+              className={`news-cat-pill ${isocOnly ? 'active' : ''}`}
+              aria-pressed={isocOnly}
+              onClick={() => {
+                const next = !isocOnly;
+                setIsocOnly(next);
+                if (next && freshnessHours < 168) {
+                  setFreshnessHours(168);
+                }
+              }}
+              title="กรองเฉพาะข่าวทางการจากศูนย์ประชาสัมพันธ์ กอ.รมน.ภาค 4 สน."
+            >
+              <span>เฉพาะ กอ.รมน.ภาค 4 สน.</span>
+              <span className="news-pill-count">{isocCount}</span>
+            </button>
+          </div>
         </div>
 
         <div className="news-filter-controls">
@@ -473,121 +509,152 @@ export function NewsHubPage({
           )}
         </div>
       ) : (
-        <div className="news-cards-grid">
-          {filteredItems.map((item) => {
-            const meta = NEWS_CATEGORY_MAP[item.category];
-            const nia = buildNiaProseSummary(item);
-            const brief = buildIntelBrief5W1H(item);
-            const reliability = getSourceReliabilityCode(item.sourceTier);
-            return (
-              <article key={item.id} className="gov-card news-item-card">
-                <div className="news-card-meta-top">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.38rem', flexWrap: 'wrap' }}>
-                    <span
-                      className="news-cat-badge"
-                      style={{ color: meta.color, backgroundColor: meta.bgColor }}
-                    >
-                      {meta.label}
-                    </span>
-                    {item.provinces.map((p) => (
-                      <span key={p} className="news-prov-chip">
-                        จ.{p}
-                      </span>
-                    ))}
-                    <span className="news-reliability-code" title={reliability.label}>
-                      รหัส {reliability.code}
-                    </span>
-                  </div>
-                  <span className="news-age-text">{formatRelativeAge(item.publishedAt, nowMs)}</span>
-                </div>
-
-                {briefView === 'nia' ? (
-                  <div className="news-nia-body">
-                    <h3 className="news-card-title">{nia.headline}</h3>
-                    <p className="news-nia-meta">
-                      เผยแพร่เมื่อ : {nia.publishedLabel} | แหล่งข่าว : {item.sourceName}
-                    </p>
-                    <p className="news-nia-prose">{nia.paragraph}</p>
-                  </div>
-                ) : (
-                  <div className="news-5w1h-list" aria-label="แยกโครงสร้างข่าวกรอง 5W1H">
-                    <div className="news-5w1h-row">
-                      <span className="news-5w1h-tag tag-what">WHAT</span>
-                      <span className="news-5w1h-text strong">{brief.what}</span>
-                    </div>
-                    <div className="news-5w1h-row">
-                      <span className="news-5w1h-tag tag-who">WHO</span>
-                      <span className="news-5w1h-text">{brief.who}</span>
-                    </div>
-                    <div className="news-5w1h-row">
-                      <span className="news-5w1h-tag tag-where">WHERE/WHEN</span>
-                      <span className="news-5w1h-text">{brief.whereWhen}</span>
-                    </div>
-                    <div className="news-5w1h-row">
-                      <span className="news-5w1h-tag tag-why">WHY/HOW</span>
-                      <span className="news-5w1h-text">{brief.whyHow}</span>
-                    </div>
-                    <div className="news-5w1h-row row-assess">
-                      <span className="news-5w1h-tag tag-assess">นัยข่าวกรอง</span>
-                      <span className="news-5w1h-text">{brief.assessment}</span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="news-card-footer">
-                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                    {item.link && (
-                      <a
-                        href={item.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-sm btn-outline"
+        <>
+          <div className="news-cards-grid">
+            {filteredItems.slice(0, visibleCount).map((item) => {
+              const meta = NEWS_CATEGORY_MAP[item.category];
+              const nia = buildNiaProseSummary(item);
+              const brief = buildIntelBrief5W1H(item);
+              const reliability = getSourceReliabilityCode(item.sourceTier);
+              const safeLink = sanitizeHttpUrl(item.link);
+              const friendlyTier =
+                item.sourceTier === 'official-public'
+                  ? 'สื่อทางการ'
+                  : item.sourceTier === 'mainstream-credible'
+                    ? 'สื่อหลัก'
+                    : 'สื่อท้องถิ่น';
+              return (
+                <article key={item.id} className="gov-card news-item-card">
+                  <div className="news-card-meta-top">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.38rem', flexWrap: 'wrap' }}>
+                      <span
+                        className="news-cat-badge"
+                        style={{ color: meta.color, backgroundColor: meta.bgColor }}
                       >
-                        <ExternalLink size={14} aria-hidden="true" />
-                        <span>ต้นฉบับ</span>
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline"
-                      onClick={() => handleCopyBrief(item)}
-                      title="คัดลอกสรุปข่าว"
-                    >
-                      {copiedNewsId === item.id ? (
-                        <Check size={14} aria-hidden="true" />
-                      ) : (
-                        <ClipboardCopy size={14} aria-hidden="true" />
-                      )}
-                      <span>{copiedNewsId === item.id ? 'คัดลอกแล้ว' : 'คัดลอกสรุปข่าว'}</span>
-                    </button>
+                        {meta.label}
+                      </span>
+                      {item.provinces.map((p) => (
+                        <span key={p} className="news-prov-chip">
+                          จ.{p}
+                        </span>
+                      ))}
+                      <span
+                        className="news-reliability-code"
+                        title={`แหล่งข่าวระดับ ${reliability.code}: ${reliability.label}`}
+                      >
+                        {friendlyTier} ({reliability.code})
+                      </span>
+                    </div>
+                    <span className="news-age-text">{formatRelativeAge(item.publishedAt, nowMs)}</span>
                   </div>
-                  {staffUnlocked && (
+
+                  {briefView === 'nia' ? (
+                    <div className="news-nia-body">
+                      <h3 className="news-card-title">{nia.headline}</h3>
+                      <p className="news-nia-meta">
+                        เผยแพร่เมื่อ : {nia.publishedLabel} | แหล่งข่าว : {item.sourceName}
+                      </p>
+                      <p className="news-nia-prose">{nia.paragraph}</p>
+                    </div>
+                  ) : (
+                    <div className="news-5w1h-list" aria-label="แยกหัวข้อสรุปข่าว">
+                      <div className="news-5w1h-row">
+                        <span className="news-5w1h-tag tag-what">เรื่องหลัก</span>
+                        <span className="news-5w1h-text strong">{brief.what}</span>
+                      </div>
+                      <div className="news-5w1h-row">
+                        <span className="news-5w1h-tag tag-who">ผู้เกี่ยวข้อง</span>
+                        <span className="news-5w1h-text">{brief.who}</span>
+                      </div>
+                      <div className="news-5w1h-row">
+                        <span className="news-5w1h-tag tag-where">พื้นที่/เวลา</span>
+                        <span className="news-5w1h-text">{brief.whereWhen}</span>
+                      </div>
+                      <div className="news-5w1h-row">
+                        <span className="news-5w1h-tag tag-why">รายละเอียด</span>
+                        <span className="news-5w1h-text">{brief.whyHow}</span>
+                      </div>
+                      <div className="news-5w1h-row row-assess">
+                        <span className="news-5w1h-tag tag-assess">ข้อควรติดตาม</span>
+                        <span className="news-5w1h-text">{brief.assessment}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="news-card-footer">
                     <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                      {onImportToDailyLog && (
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-primary"
-                          onClick={() => handleImportDailyLog(item)}
+                      {safeLink && (
+                        <a
+                          href={safeLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-sm btn-outline"
                         >
-                          <NotebookPen size={14} aria-hidden="true" />
-                          <span>สรุปเข้าชีทประจำวัน</span>
-                        </button>
+                          <ExternalLink size={14} aria-hidden="true" />
+                          <span>อ่านข่าวเต็ม</span>
+                        </a>
                       )}
                       <button
                         type="button"
                         className="btn btn-sm btn-outline"
-                        onClick={() => handleImport(item)}
+                        onClick={() => handleCopyBrief(item)}
+                        title="คัดลอกสรุปข่าวส่งต่อทาง LINE"
                       >
-                        <FilePlus2 size={14} aria-hidden="true" />
-                        <span>ส่งเข้า IPB</span>
+                        {copiedNewsId === item.id ? (
+                          <Check size={14} aria-hidden="true" />
+                        ) : (
+                          <ClipboardCopy size={14} aria-hidden="true" />
+                        )}
+                        <span>{copiedNewsId === item.id ? 'คัดลอกแล้ว' : 'คัดลอกส่ง LINE'}</span>
                       </button>
                     </div>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </div>
+                    {staffUnlocked && (
+                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        {onImportToDailyLog && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-primary"
+                            onClick={() => handleImportDailyLog(item)}
+                          >
+                            <NotebookPen size={14} aria-hidden="true" />
+                            <span>สรุปเข้าชีทประจำวัน</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline"
+                          onClick={() => handleImport(item)}
+                        >
+                          <FilePlus2 size={14} aria-hidden="true" />
+                          <span>ส่งเข้า IPB</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          {filteredItems.length > visibleCount && (
+            <div className="news-load-more-bar">
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setVisibleCount((c) => c + 12)}
+              >
+                ดูข่าวเพิ่มเติม (+12 ข่าว • แสดงแล้ว {Math.min(visibleCount, filteredItems.length)} จาก{' '}
+                {filteredItems.length} ข่าว)
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setVisibleCount(filteredItems.length)}
+              >
+                แสดงทั้งหมด
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {/* Editorial Transparency Panel */}

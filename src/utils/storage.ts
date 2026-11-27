@@ -49,9 +49,30 @@ function ensureBuiltinCategories(categories?: string[]): string[] {
   return base;
 }
 
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+function safeLocalStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore QuotaExceededError or SecurityError in restricted environments
+  }
+}
+
+function safeLocalStorageRemove(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Ignore SecurityError
+  }
+}
+
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+
+  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
+      dbPromise = null;
       reject(new Error('IndexedDB unavailable'));
       return;
     }
@@ -71,9 +92,28 @@ function openDb(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_DAILY_LOGS, { keyPath: 'id' });
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error('Failed to open IndexedDB'));
+    req.onblocked = () => {
+      dbPromise = null;
+      reject(new Error('IndexedDB upgrade blocked by another tab'));
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      db.onclose = () => {
+        dbPromise = null;
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      dbPromise = null;
+      reject(req.error || new Error('Failed to open IndexedDB'));
+    };
   });
+
+  return dbPromise;
 }
 
 function sortIncidentsDesc(items: IncidentRecord[]): IncidentRecord[] {
@@ -125,7 +165,7 @@ export async function saveIncident(record: IncidentRecord): Promise<void> {
     const current = await loadIncidents();
     const next = current.filter((item) => item.id !== record.id);
     next.unshift(record);
-    localStorage.setItem(LS_INCIDENTS_KEY, JSON.stringify(next));
+    safeLocalStorageSet(LS_INCIDENTS_KEY, JSON.stringify(next));
   }
 }
 
@@ -145,7 +185,7 @@ export async function saveIncidentsBatch(records: IncidentRecord[]): Promise<voi
     const current = await loadIncidents();
     const map = new Map(current.map((c) => [c.id, c]));
     for (const r of records) map.set(r.id, r);
-    localStorage.setItem(LS_INCIDENTS_KEY, JSON.stringify(sortIncidentsDesc(Array.from(map.values()))));
+    safeLocalStorageSet(LS_INCIDENTS_KEY, JSON.stringify(sortIncidentsDesc(Array.from(map.values()))));
   }
 }
 
@@ -161,7 +201,7 @@ export async function deleteIncident(id: string): Promise<void> {
   } catch {
     const current = await loadIncidents();
     const next = current.filter((item) => item.id !== id);
-    localStorage.setItem(LS_INCIDENTS_KEY, JSON.stringify(next));
+    safeLocalStorageSet(LS_INCIDENTS_KEY, JSON.stringify(next));
   }
 }
 
@@ -175,7 +215,7 @@ export async function clearAllIncidents(): Promise<void> {
       tx.onerror = () => reject(tx.error);
     });
   } catch {
-    localStorage.removeItem(LS_INCIDENTS_KEY);
+    safeLocalStorageRemove(LS_INCIDENTS_KEY);
   }
 }
 
@@ -212,7 +252,7 @@ export async function saveWatchAlert(record: WatchAlertRecord): Promise<void> {
     const current = await loadWatchAlerts();
     const next = current.filter((item) => item.id !== record.id);
     next.unshift(record);
-    localStorage.setItem(LS_WATCH_ALERTS_KEY, JSON.stringify(sortWatchAlertsDesc(next)));
+    safeLocalStorageSet(LS_WATCH_ALERTS_KEY, JSON.stringify(sortWatchAlertsDesc(next)));
   }
 }
 
@@ -233,7 +273,7 @@ export async function saveWatchAlertsBatch(records: WatchAlertRecord[]): Promise
     const current = await loadWatchAlerts();
     const map = new Map(current.map((c) => [c.id, c]));
     for (const r of records) map.set(r.id, r);
-    localStorage.setItem(
+    safeLocalStorageSet(
       LS_WATCH_ALERTS_KEY,
       JSON.stringify(sortWatchAlertsDesc(Array.from(map.values())))
     );
@@ -252,7 +292,7 @@ export async function deleteWatchAlert(id: string): Promise<void> {
   } catch {
     const current = await loadWatchAlerts();
     const next = current.filter((item) => item.id !== id);
-    localStorage.setItem(LS_WATCH_ALERTS_KEY, JSON.stringify(next));
+    safeLocalStorageSet(LS_WATCH_ALERTS_KEY, JSON.stringify(next));
   }
 }
 
@@ -321,7 +361,7 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
       tx.onerror = () => reject(tx.error);
     });
   } catch {
-    localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings));
+    safeLocalStorageSet(LS_SETTINGS_KEY, JSON.stringify(settings));
   }
 }
 
@@ -366,7 +406,7 @@ export async function saveDailyLog(record: DailyLogRecord): Promise<void> {
     const current = await loadDailyLogs();
     const next = current.filter((item) => item.id !== record.id);
     next.unshift(record);
-    localStorage.setItem(LS_DAILY_LOGS_KEY, JSON.stringify(sortDailyLogsDesc(next)));
+    safeLocalStorageSet(LS_DAILY_LOGS_KEY, JSON.stringify(sortDailyLogsDesc(next)));
   }
 }
 
@@ -387,7 +427,7 @@ export async function saveDailyLogsBatch(records: DailyLogRecord[]): Promise<voi
     const current = await loadDailyLogs();
     const map = new Map(current.map((c) => [c.id, c]));
     for (const r of records) map.set(r.id, r);
-    localStorage.setItem(
+    safeLocalStorageSet(
       LS_DAILY_LOGS_KEY,
       JSON.stringify(sortDailyLogsDesc(Array.from(map.values())))
     );
@@ -406,6 +446,6 @@ export async function deleteDailyLog(id: string): Promise<void> {
   } catch {
     const current = await loadDailyLogs();
     const next = current.filter((item) => item.id !== id);
-    localStorage.setItem(LS_DAILY_LOGS_KEY, JSON.stringify(next));
+    safeLocalStorageSet(LS_DAILY_LOGS_KEY, JSON.stringify(next));
   }
 }

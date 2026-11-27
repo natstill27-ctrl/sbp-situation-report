@@ -5,7 +5,12 @@ import type {
   NiaBriefSummary,
   SourceTier,
 } from '../types/news';
-import { THAI_MONTHS_LONG, THAI_MONTHS_SHORT, formatThaiDateTime } from './thaiDate';
+import {
+  THAI_MONTHS_LONG,
+  THAI_MONTHS_SHORT,
+  formatThaiDateTime,
+  toBangkokIso16,
+} from './thaiDateFormat';
 
 const INNER_AOR_PROVINCES = new Set(['สงขลา', 'พัทลุง', 'ตรัง', 'สตูล']);
 const BORDER_AOR_PROVINCES = new Set(['ปัตตานี', 'ยะลา', 'นราธิวาส']);
@@ -181,10 +186,8 @@ export function buildWhereWhenLine(item: CuratedNewsItem): string {
     areaParts.push(provText);
   }
 
-  const bkkIso = new Date(new Date(item.publishedAt).getTime() + 7 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 16);
-  const whenText = formatThaiDateTime(bkkIso, { shortMonth: true });
+  const bkkIso = toBangkokIso16(item.publishedAt);
+  const whenText = bkkIso ? formatThaiDateTime(bkkIso, { shortMonth: true }) : '-';
   return clampLine(`${areaParts.join(' ')} • ${whenText}`, 125);
 }
 
@@ -305,12 +308,6 @@ const THAI_LONG_TO_SHORT_MONTH = new Map(
 );
 
 const LONG_MONTH_PATTERN = THAI_MONTHS_LONG.join('|');
-
-function toBangkokIso16(isoString: string): string {
-  const ms = new Date(isoString).getTime();
-  if (Number.isNaN(ms)) return '';
-  return new Date(ms + 7 * 60 * 60 * 1000).toISOString().slice(0, 16);
-}
 
 /**
  * Format ISO timestamp into NIA short BE date (e.g. "26 พ.ย.69") in Asia/Bangkok.

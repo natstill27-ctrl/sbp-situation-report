@@ -6,18 +6,19 @@ import {
   Clock,
   Database,
   Download,
+  FileText,
   Filter,
   ImageDown,
   Maximize2,
   Minimize2,
-  Moon,
+  Monitor,
   Printer,
   RotateCcw,
   Shield,
   ShieldAlert,
-  Sun,
 } from 'lucide-react';
 import type { AppSettings, IncidentRecord, WatchAlertRecord } from '../types/incident';
+import { copyTextToClipboard } from '../utils/clipboard';
 import {
   exportHorizontalBarsToPng,
   exportIpbMatrixToCsv,
@@ -39,6 +40,7 @@ import {
   extractWatchAdvisory,
   formatThaiDateTime,
   formatWatchAreasSummary,
+  getBangkokYmd,
   getCurrentLocalDateTimeInput,
   isWatchAdvisoryCategory,
   isWatchAlertActive,
@@ -46,6 +48,33 @@ import {
   toThaiDigits,
 } from '../utils/thaiDate';
 import { LeafletMap } from './LeafletMap';
+
+function LiveTacticalClock({ lastPulledAt }: { lastPulledAt?: string | null }) {
+  const [clockNow, setClockNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const liveThaiDate = `${clockNow.getDate()} ${THAI_MONTHS_LONG[clockNow.getMonth()]} ${
+    clockNow.getFullYear() + 543
+  }`;
+  const liveClock = `${String(clockNow.getHours()).padStart(2, '0')}:${String(
+    clockNow.getMinutes()
+  ).padStart(2, '0')}:${String(clockNow.getSeconds()).padStart(2, '0')}`;
+
+  return (
+    <div className="c2-clock-block">
+      <div className="c2-date-text">{liveThaiDate}</div>
+      <div className="c2-clock-row">
+        <Clock size={14} aria-hidden="true" />
+        {lastPulledAt ? <span>ซิงก์ล่าสุด {lastPulledAt} น. •</span> : <span>เวลาปัจจุบัน</span>}
+        <span className="c2-live-clock">{liveClock}</span>
+      </div>
+    </div>
+  );
+}
 
 interface IpbDashboardPageProps {
   incidents: IncidentRecord[];
@@ -93,7 +122,6 @@ export function IpbDashboardPage({
   const [selectedMapId, setSelectedMapId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [clockNow, setClockNow] = useState(() => new Date());
 
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [pulling, setPulling] = useState(false);
@@ -106,22 +134,24 @@ export function IpbDashboardPage({
   const hotspotSvgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setClockNow(new Date()), 1000);
     const onFsChange = () => {
       setIsFullscreen(Boolean(document.fullscreenElement));
     };
     document.addEventListener('fullscreenchange', onFsChange);
     return () => {
-      window.clearInterval(timer);
       document.removeEventListener('fullscreenchange', onFsChange);
     };
   }, []);
 
   const toggleFullscreen = async () => {
-    if (!document.fullscreenElement && dashboardRef.current?.requestFullscreen) {
-      await dashboardRef.current.requestFullscreen();
-    } else if (document.fullscreenElement && document.exitFullscreen) {
-      await document.exitFullscreen();
+    try {
+      if (!document.fullscreenElement && dashboardRef.current?.requestFullscreen) {
+        await dashboardRef.current.requestFullscreen();
+      } else if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // Ignore fullscreen permission errors
     }
   };
 
@@ -318,13 +348,16 @@ export function IpbDashboardPage({
     }));
   }, [filtered]);
 
-  // Province comparison
+  // Province comparison across all 7 lower-southern provinces
   const provinceStats = useMemo(() => {
     const counts: Record<string, number> = {
       นราธิวาส: 0,
       ปัตตานี: 0,
       ยะลา: 0,
       สงขลา: 0,
+      พัทลุง: 0,
+      ตรัง: 0,
+      สตูล: 0,
       อื่นๆ: 0,
     };
     for (const item of filtered) {
@@ -336,7 +369,10 @@ export function IpbDashboardPage({
       { key: 'นราธิวาส', label: 'จว.นราธิวาส', count: counts['นราธิวาส'], color: '#0ea5e9' },
       { key: 'ปัตตานี', label: 'จว.ปัตตานี', count: counts['ปัตตานี'], color: '#2563eb' },
       { key: 'ยะลา', label: 'จว.ยะลา', count: counts['ยะลา'], color: '#a855f7' },
-      { key: 'สงขลา', label: '4 อ. จว.สงขลา', count: counts['สงขลา'], color: '#f97316' },
+      { key: 'สงขลา', label: 'จว.สงขลา', count: counts['สงขลา'], color: '#f97316' },
+      { key: 'พัทลุง', label: 'จว.พัทลุง', count: counts['พัทลุง'], color: '#10b981' },
+      { key: 'ตรัง', label: 'จว.ตรัง', count: counts['ตรัง'], color: '#eab308' },
+      { key: 'สตูล', label: 'จว.สตูล', count: counts['สตูล'], color: '#ec4899' },
       ...(counts['อื่นๆ'] > 0
         ? [{ key: 'อื่นๆ', label: 'นอกเขต/อื่นๆ', count: counts['อื่นๆ'], color: '#64748b' }]
         : []),
@@ -432,7 +468,7 @@ export function IpbDashboardPage({
     for (const item of filtered) {
       const weight = getIncidentWeight(item);
       const areaKey = item.province
-        ? `${item.province === 'สงขลา' ? '4 อ.สงขลา' : `จว.${item.province}`}${item.district ? ` / อ.${item.district}` : ''}`
+        ? `จว.${item.province}${item.district ? ` / อ.${item.district}` : ''}`
         : 'ไม่ระบุพื้นที่';
       const existing = map.get(areaKey) || { area: areaKey, counts: {}, total: 0 };
       existing.counts[item.category] = (existing.counts[item.category] || 0) + weight;
@@ -468,9 +504,11 @@ export function IpbDashboardPage({
         `จำแนกตามประเภทเหตุการณ์:\n${catLines || '-'}`
     );
 
-    await navigator.clipboard.writeText(text);
-    setCopiedSummary(true);
-    window.setTimeout(() => setCopiedSummary(false), 2000);
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      setCopiedSummary(true);
+      window.setTimeout(() => setCopiedSummary(false), 2000);
+    }
   };
 
   const resetFilters = () => {
@@ -519,12 +557,6 @@ export function IpbDashboardPage({
   };
 
   const isDark = c2Theme === 'dark';
-  const liveThaiDate = `${clockNow.getDate()} ${THAI_MONTHS_LONG[clockNow.getMonth()]} ${
-    clockNow.getFullYear() + 543
-  }`;
-  const liveClock = `${String(clockNow.getHours()).padStart(2, '0')}:${String(
-    clockNow.getMinutes()
-  ).padStart(2, '0')}:${String(clockNow.getSeconds()).padStart(2, '0')}`;
 
   const maxSeverity = Math.max(1, ...severityStats.map((s) => s.count));
   const maxDaily = Math.max(1, ...dailyTrend.map((d) => d.count));
@@ -573,20 +605,13 @@ export function IpbDashboardPage({
             <p className="c2-subtitle-en">Intelligence Preparation Of The Battlefield</p>
             <p className="c2-subtitle-th">
               {settings?.agencyName ||
-                'ศูนย์ข้อมูลสถานการณ์และสถิติเพื่อการวิเคราะห์ IPB (3 จว. + 4 อ. จว.สงขลา)'}
+                'ศูนย์ข้อมูลสถานการณ์และสถิติเพื่อการวิเคราะห์ IPB (7 จังหวัดภาคใต้ตอนล่าง)'}
             </p>
           </div>
         </div>
 
         <div className="c2-header-right">
-          <div className="c2-clock-block">
-            <div className="c2-date-text">{liveThaiDate}</div>
-            <div className="c2-clock-row">
-              <Clock size={14} aria-hidden="true" />
-              <span>อัปเดต {lastPulledAt ? `${lastPulledAt} น.` : liveClock}</span>
-              <span className="c2-live-clock">{liveClock}</span>
-            </div>
-          </div>
+          <LiveTacticalClock lastPulledAt={lastPulledAt} />
 
           <div className="c2-action-toolbar no-print">
             {onPullFromGas && (
@@ -644,15 +669,20 @@ export function IpbDashboardPage({
               type="button"
               className="c2-btn"
               onClick={() => setC2Theme((t) => (t === 'dark' ? 'light' : 'dark'))}
-              title="สลับระหว่างโหมดห้องยุทธการ (Dark C2) และโหมดเอกสาร (Light)"
+              title="สลับระหว่างโหมดห้องยุทธการ (พื้นเข้ม) และโหมดเอกสาร (พื้นสว่าง)"
             >
-              {isDark ? <Sun size={15} aria-hidden="true" /> : <Moon size={15} aria-hidden="true" />}
+              {isDark ? (
+                <FileText size={15} aria-hidden="true" />
+              ) : (
+                <Monitor size={15} aria-hidden="true" />
+              )}
               <span>{isDark ? 'โหมดเอกสาร' : 'โหมดยุทธการ'}</span>
             </button>
             <button
               type="button"
               className="c2-btn"
               onClick={toggleFullscreen}
+              aria-label={isFullscreen ? 'ออกจากโหมดเต็มหน้าจอ' : 'แสดงผลเต็มหน้าจอ'}
               title="เปิด/ปิดโหมดแสดงผลเต็มหน้าจอ"
             >
               {isFullscreen ? (
@@ -829,7 +859,7 @@ export function IpbDashboardPage({
           <BarChart3 size={42} aria-hidden="true" />
           <h3>ยังไม่มีข้อมูลเหตุการณ์สำหรับแสดงผล Command Center</h3>
           <p>
-            บันทึกเหตุการณ์ในหน้า &ldquo;บันทึกเหตุการณ์&rdquo; ดึงข้อมูลจาก GAS เดิม หรือกดปุ่มด้านล่างเพื่อโหลดชุดข้อมูลตัวอย่างทดสอบ
+            บันทึกเหตุการณ์ในหน้า &ldquo;บันทึกเหตุการณ์ IPB&rdquo; ดึงข้อมูลจากระบบกลาง หรือกดปุ่มด้านล่างเพื่อโหลดชุดข้อมูลตัวอย่างทดสอบ
           </p>
           <button type="button" className="c2-btn c2-btn-primary" onClick={onLoadSamples}>
             <Database size={16} aria-hidden="true" />
@@ -1001,11 +1031,13 @@ export function IpbDashboardPage({
                 <button
                   type="button"
                   className="c2-xs-btn no-print"
+                  aria-label="ดาวน์โหลดกราฟสัดส่วนประเภทเหตุการณ์เป็น PNG"
+                  title="ดาวน์โหลดภาพกราฟ (PNG)"
                   onClick={() => {
                     if (donutSvgRef.current) {
                       void exportSvgElementToPng(
                         donutSvgRef.current,
-                        `ipb-categories-donut-${new Date().toISOString().slice(0, 10)}.png`,
+                        `ipb-categories-donut-${getBangkokYmd()}.png`,
                         'สัดส่วนประเภทเหตุการณ์',
                         isDark
                       );
@@ -1121,6 +1153,8 @@ export function IpbDashboardPage({
                   <button
                     type="button"
                     className="c2-xs-btn no-print"
+                    aria-label="ดาวน์โหลดกราฟระดับความรุนแรงเป็น PNG"
+                    title="ดาวน์โหลดภาพกราฟ (PNG)"
                     onClick={() =>
                       exportHorizontalBarsToPng(
                         'ระดับความรุนแรงของเหตุการณ์',
@@ -1130,7 +1164,7 @@ export function IpbDashboardPage({
                           subtitle: `${s.count} เหตุการณ์`,
                           color: s.color,
                         })),
-                        `ipb-severity-${new Date().toISOString().slice(0, 10)}.png`
+                        `ipb-severity-${getBangkokYmd()}.png`
                       )
                     }
                   >
@@ -1251,11 +1285,13 @@ export function IpbDashboardPage({
                 <button
                   type="button"
                   className="c2-xs-btn no-print"
+                  aria-label="ดาวน์โหลดกราฟแนวโน้ม 30 วันเป็น PNG"
+                  title="ดาวน์โหลดภาพกราฟ (PNG)"
                   onClick={() => {
                     if (dailySvgRef.current) {
                       void exportSvgElementToPng(
                         dailySvgRef.current,
-                        `ipb-30d-trend-${new Date().toISOString().slice(0, 10)}.png`,
+                        `ipb-30d-trend-${getBangkokYmd()}.png`,
                         'แนวโน้มเหตุการณ์ 30 วันย้อนหลัง',
                         isDark
                       );
@@ -1353,11 +1389,13 @@ export function IpbDashboardPage({
                 <button
                   type="button"
                   className="c2-xs-btn no-print"
+                  aria-label="ดาวน์โหลดกราฟเหตุการณ์รายเดือนเป็น PNG"
+                  title="ดาวน์โหลดภาพกราฟ (PNG)"
                   onClick={() => {
                     if (monthlySvgRef.current) {
                       void exportSvgElementToPng(
                         monthlySvgRef.current,
-                        `ipb-monthly-stacked-${new Date().toISOString().slice(0, 10)}.png`,
+                        `ipb-monthly-stacked-${getBangkokYmd()}.png`,
                         'สถิติเหตุการณ์รายเดือนแยกตามประเภท',
                         isDark
                       );
@@ -1455,11 +1493,13 @@ export function IpbDashboardPage({
                 <button
                   type="button"
                   className="c2-xs-btn no-print"
+                  aria-label="ดาวน์โหลดกราฟอำเภอเกิดเหตุสูงสุดเป็น PNG"
+                  title="ดาวน์โหลดภาพกราฟ (PNG)"
                   onClick={() => {
                     if (hotspotSvgRef.current) {
                       void exportSvgElementToPng(
                         hotspotSvgRef.current,
-                        `ipb-hotspot-districts-${new Date().toISOString().slice(0, 10)}.png`,
+                        `ipb-hotspot-districts-${getBangkokYmd()}.png`,
                         'อันดับอำเภอที่เกิดเหตุสูงสุด',
                         isDark
                       );

@@ -29,7 +29,12 @@ import {
   lookupAreaByLatLng,
 } from '../utils/geoLookup';
 import { NEWS_CATEGORIES, NEWS_CATEGORY_MAP } from '../utils/newsCurator';
-import { formatThaiDateTime, getCurrentLocalDateTimeInput } from '../utils/thaiDate';
+import { sanitizeHttpUrl } from '../utils/safeHtml';
+import {
+  formatThaiDateTime,
+  getBangkokYmd,
+  getCurrentLocalDateTimeInput,
+} from '../utils/thaiDateFormat';
 import { LeafletMap } from './LeafletMap';
 
 interface DailyLogPageProps {
@@ -308,7 +313,7 @@ export function DailyLogPage({
       } else {
         setStatusBanner({
           ok: false,
-          text: `บันทึกลงเครื่องแล้ว (${saved.syncError || 'รอเชื่อมต่อชีทแผนก / ตั้งค่า Wing56DailyLog.gs'})`,
+          text: `บันทึกลงเครื่องแล้ว (${saved.syncError || 'รอเชื่อมต่อระบบชีทแผนก'})`,
         });
       }
       resetForm();
@@ -390,7 +395,7 @@ export function DailyLogPage({
       r.reporter,
     ]);
     const csv = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
-    triggerCsvDownload(`wing56-daily-log-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+    triggerCsvDownload(`wing56-daily-log-${getBangkokYmd()}.csv`, csv);
   };
 
   return (
@@ -424,7 +429,7 @@ export function DailyLogPage({
         <div className="inline-alert warn" style={{ marginBottom: '1rem' }} role="status">
           <AlertTriangle size={16} aria-hidden="true" />
           <span>
-            ยังไม่ได้ตั้งค่า URL ของชีทบันทึกประจำวันแผนก (Wing56DailyLog.gs) ในหน้า &ldquo;ตั้งค่า &amp; เชื่อมระบบ&rdquo; — รายการที่บันทึกจะเก็บไว้ในเครื่องก่อน
+            ยังไม่ได้ตั้งค่าลิงก์ชีทบันทึกประจำวันแผนกในหน้า &ldquo;ตั้งค่า &amp; เชื่อมระบบ&rdquo; — รายการที่บันทึกจะเก็บไว้ในเครื่องก่อน
           </span>
         </div>
       )}
@@ -853,17 +858,20 @@ export function DailyLogPage({
                     )}
                   </div>
                   <div className="unified-list-actions" style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                    {rec.sourceLink && (
-                      <a
-                        href={rec.sourceLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn-xs btn-outline"
-                        aria-label={`เปิดลิงก์ต้นทาง ${rec.title}`}
-                      >
-                        <ExternalLink size={13} aria-hidden="true" />
-                      </a>
-                    )}
+                    {(() => {
+                      const safeLink = sanitizeHttpUrl(rec.sourceLink);
+                      return safeLink ? (
+                        <a
+                          href={safeLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn-xs btn-outline"
+                          aria-label={`เปิดลิงก์ต้นทาง ${rec.title}`}
+                        >
+                          <ExternalLink size={13} aria-hidden="true" />
+                        </a>
+                      ) : null;
+                    })()}
                     {rec.syncStatus !== 'synced' && (
                       <button
                         type="button"

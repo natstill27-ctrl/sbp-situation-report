@@ -1,5 +1,5 @@
 import type { IncidentRecord } from '../types/incident';
-import { THAI_MONTHS_SHORT } from './thaiDate';
+import { THAI_MONTHS_SHORT } from './thaiDateFormat';
 
 export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low';
 

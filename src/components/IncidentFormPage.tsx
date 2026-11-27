@@ -29,6 +29,7 @@ import type {
   WatchAuditResult,
 } from '../types/incident';
 import type { NewsToIncidentDraft } from '../types/news';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { buildParsedCoordinate, parseCoordinateInput } from '../utils/coordinates';
 import type { GasPullResult } from '../utils/gasSync';
 import {
@@ -1224,9 +1225,11 @@ export function IncidentFormPage({
       mode === 'line'
         ? formatIncidentForLine(lastSavedRecord)
         : formatIncidentForPaper(lastSavedRecord, true);
-    await navigator.clipboard.writeText(text);
-    setCopiedType(mode);
-    window.setTimeout(() => setCopiedType(null), 2000);
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      setCopiedType(mode);
+      window.setTimeout(() => setCopiedType(null), 2000);
+    }
   };
 
   return (
@@ -1742,8 +1745,16 @@ export function IncidentFormPage({
                     return (
                       <div
                         key={item.id}
+                        role="button"
+                        tabIndex={0}
                         className={`batch-item-card ${isActive ? 'active' : ''}`}
                         onClick={() => setActiveItemId(item.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setActiveItemId(item.id);
+                          }
+                        }}
                       >
                         <div className="batch-item-header">
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
@@ -1879,7 +1890,7 @@ export function IncidentFormPage({
                               <option value="">-- จังหวัด --</option>
                               {provinces.map((p) => (
                                 <option key={p} value={p}>
-                                  {p === 'สงขลา' ? 'สงขลา (4 อ.)' : p}
+                                  {p}
                                 </option>
                               ))}
                             </select>

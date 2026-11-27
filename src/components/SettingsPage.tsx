@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   CheckCircle2,
-  ClipboardCopy,
   CloudDownload,
-  Code2,
   Plus,
   RotateCcw,
   Save,
@@ -14,16 +12,10 @@ import {
 } from 'lucide-react';
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS } from '../data/defaults';
 import type { AppSettings, GasFieldMapping } from '../types/incident';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { encodeConfigHash } from '../utils/configShare';
-import {
-  generateDailyLogGasCode,
-  pullDailyLogsFromGas,
-  testDailyLogGasConnection,
-} from '../utils/dailyLogGasSync';
-import {
-  testGasConnection,
-  type GasPullResult,
-} from '../utils/gasSync';
+import { pullDailyLogsFromGas, testDailyLogGasConnection } from '../utils/dailyLogGasSync';
+import { testGasConnection, type GasPullResult } from '../utils/gasSync';
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -68,14 +60,11 @@ export function SettingsPage({
   const [dailyTestResult, setDailyTestResult] = useState<{ ok: boolean; message: string } | null>(
     null
   );
-  const [copiedDailyCode, setCopiedDailyCode] = useState(false);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
 
   useEffect(() => {
     setDraft(settings);
   }, [settings]);
-
-  const generatedDailyLogCode = useMemo(() => generateDailyLogGasCode(draft), [draft]);
 
   const handleTestDailyLog = async () => {
     setTestingDaily(true);
@@ -99,12 +88,6 @@ export function SettingsPage({
     } finally {
       setPullingDaily(false);
     }
-  };
-
-  const handleCopyDailyCode = async () => {
-    await navigator.clipboard.writeText(generatedDailyLogCode);
-    setCopiedDailyCode(true);
-    window.setTimeout(() => setCopiedDailyCode(false), 2000);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -154,9 +137,11 @@ export function SettingsPage({
 
   const handleCopyShareLink = async () => {
     const url = encodeConfigHash(draft);
-    await navigator.clipboard.writeText(url);
-    setCopiedShareLink(true);
-    window.setTimeout(() => setCopiedShareLink(false), 2500);
+    const ok = await copyTextToClipboard(url);
+    if (ok) {
+      setCopiedShareLink(true);
+      window.setTimeout(() => setCopiedShareLink(false), 2500);
+    }
   };
 
   return (
@@ -164,27 +149,27 @@ export function SettingsPage({
       <div className="section-header-row">
         <div>
           <h2 id="settings-heading" className="section-title">
-            ตั้งค่าระบบและเชื่อมต่อ Google Apps Script เดิม
+            ตั้งค่าระบบและเชื่อมต่อฐานข้อมูลแผนก
           </h2>
           <p className="section-subtitle">
-            กำหนด Webhook URL, จับคู่ชื่อคอลัมน์ให้ตรงกับชีตเดิม, แก้ไขชื่อหน่วยงาน และคัดลอกโค้ดฝั่งรับข้อมูล (Code.gs)
+            เชื่อมต่อลิงก์ Google Sheet ของแผนก แก้ไขชื่อหน่วยงาน และจัดการหมวดหมู่เหตุการณ์
           </p>
         </div>
       </div>
 
       <form onSubmit={handleSave} className="settings-stack">
-        {/* 0. Department Daily Log Google Sheet (7 Categories + Master Tab) */}
+        {/* 1. Department Daily Log Google Sheet (7 Categories + Master Tab) */}
         <div className="gov-card">
           <h3 className="card-title">
-            เชื่อมต่อชีทบันทึกเหตุการณ์ประจำวันของแผนก (สร้างแท็บรวม + แยก 7 หมวดอัตโนมัติ)
+            1. เชื่อมต่อชีทบันทึกเหตุการณ์ประจำวันของแผนก (แยก 7 หมวดอัตโนมัติ)
           </h3>
           <p className="card-subtitle">
-            ใช้ Google Sheet แยกเฉพาะของ ผขว.บก.บน.56 และตรวจสอบสิทธิ์เจ้าหน้าที่ด้วย <code>STAFF_PIN</code> ใน GAS Script Properties (ลิงก์นี้ถูกใช้ดึงข้อมูลขึ้นแผนที่สรุปการประชุม บน.56 ด้วย)
+            ใช้ Google Sheet เฉพาะของแผนก ผขว.บก.บน.56 เพื่อเก็บบันทึกประจำวันและดึงขึ้นแสดงบนแผนที่สรุปสถานการณ์รวม
           </p>
 
           <div className="form-group" style={{ marginTop: '0.9rem' }}>
             <label htmlFor="daily-log-gas-url" className="form-label">
-              Web App URL (/exec) ของสคริปต์ Wing56DailyLog.gs
+              ลิงก์เชื่อมต่อชีทบันทึกประจำวัน (Web App URL ลงท้าย /exec)
             </label>
             <div className="webhook-input-row">
               <input
@@ -245,16 +230,16 @@ export function SettingsPage({
           )}
         </div>
 
-        {/* 1. GAS Webhook Configuration */}
+        {/* 2. IPB System Connection */}
         <div className="gov-card">
-          <h3 className="card-title">1. เชื่อมต่อ Google Apps Script Webhook (ระบบเดิม)</h3>
+          <h3 className="card-title">2. เชื่อมต่อฐานข้อมูลเหตุการณ์ IPB (ระบบเดิม)</h3>
           <p className="card-subtitle">
-            ส่งข้อมูลแบบ JSON ผ่าน <code>Content-Type: text/plain</code> เพื่อหลีกเลี่ยงปัญหา CORS ของ Google Apps Script
+            ใช้ส่งและดึงข้อมูลเหตุการณ์ IPB จาก Google Sheets ของหน่วยงานอย่างปลอดภัย
           </p>
 
           <div className="form-group" style={{ marginTop: '1rem' }}>
             <label htmlFor="gas-webhook-url" className="form-label">
-              Google Apps Script Web App URL (/exec)
+              ลิงก์เชื่อมต่อระบบฐานข้อมูล IPB (/exec)
             </label>
             <div className="webhook-input-row">
               <input
@@ -426,9 +411,9 @@ export function SettingsPage({
           )}
         </div>
 
-        {/* 2. Agency & Branding */}
+        {/* 3. Agency & Branding */}
         <div className="gov-card">
-          <h3 className="card-title">2. ข้อมูลหน่วยงานและส่วนหัวเว็บไซต์ภาครัฐ</h3>
+          <h3 className="card-title">3. ข้อมูลหน่วยงานและส่วนหัวเว็บไซต์</h3>
           <div className="two-col-row" style={{ marginTop: '0.75rem' }}>
             <div className="form-group">
               <label htmlFor="sys-title" className="form-label">
@@ -502,11 +487,11 @@ export function SettingsPage({
           </div>
         </div>
 
-        {/* 3. Incident Categories */}
+        {/* 4. Incident Categories */}
         <div className="gov-card">
           <div className="card-header-row">
             <div>
-              <h3 className="card-title">3. จัดการหมวดหมู่ประเภทเหตุการณ์</h3>
+              <h3 className="card-title">4. จัดการหมวดหมู่ประเภทเหตุการณ์</h3>
               <p className="card-subtitle">ใช้ในตัวเลือกฟอร์มและตารางวิเคราะห์สถิติ IPB</p>
             </div>
             <button
@@ -556,13 +541,19 @@ export function SettingsPage({
           </div>
         </div>
 
-        {/* 4. Field Mapping */}
-        <div className="gov-card">
-          <div className="card-header-row">
+        {/* 5. Advanced Field Mapping (Collapsed by default for everyday users) */}
+        <details className="gov-card gov-advanced-details">
+          <summary className="gov-advanced-summary">
+            <span>5. ตั้งค่าขั้นสูง: จับคู่ชื่อคอลัมน์ใน Google Sheets (สำหรับผู้ดูแลระบบ)</span>
+            <span className="field-hint" style={{ margin: 0 }}>
+              คลิกเพื่อเปิด/ปิด
+            </span>
+          </summary>
+
+          <div className="card-header-row" style={{ marginTop: '0.85rem' }}>
             <div>
-              <h3 className="card-title">4. จับคู่ชื่อฟิลด์ / คอลัมน์ที่จะส่งเข้า Google Sheets</h3>
               <p className="card-subtitle">
-                สามารถแก้ชื่อคีย์ JSON ให้ตรงกับชื่อคอลัมน์หรือสคริปต์เดิมของคุณได้ทันที (เมื่อได้โครงสร้างจากระบบเดิมแล้ว)
+                สามารถแก้ชื่อคอลัมน์ให้ตรงกับชีตเดิมของหน่วยงานได้ทันที
               </p>
             </div>
             <button
@@ -596,7 +587,7 @@ export function SettingsPage({
               </div>
             ))}
           </div>
-        </div>
+        </details>
 
         {saveBanner && (
           <div className="inline-alert info" role="status">
@@ -612,31 +603,6 @@ export function SettingsPage({
           </button>
         </div>
       </form>
-
-      {/* 6. Ready-to-Paste Wing56DailyLog.gs Code */}
-      <div className="gov-card" style={{ marginTop: '1.5rem' }}>
-        <div className="card-header-row">
-          <div>
-            <h3 className="card-title">
-              <Code2 size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} aria-hidden="true" />
-              โค้ด Google Apps Script สำหรับชีทบันทึกประจำวันแผนก 7 หมวด (Wing56DailyLog.gs)
-            </h3>
-            <p className="card-subtitle">
-              1) สร้าง Google Sheet ใหม่ &rarr; Extensions &rarr; Apps Script แล้ววางโค้ดนี้ |{' '}
-              2) เข้า <strong>Project Settings &rarr; Script Properties</strong> เพิ่มคีย์{' '}
-              <code>STAFF_PIN</code> | 3) กด Run <code>setupWing56DailyLogSheets()</code> |{' '}
-              4) Deploy เป็น Web App (Anyone) แล้วนำลิงก์มาใส่ด้านบน
-            </p>
-          </div>
-          <button type="button" className="btn btn-outline" onClick={handleCopyDailyCode}>
-            <ClipboardCopy size={16} aria-hidden="true" />
-            <span>{copiedDailyCode ? 'คัดลอกโค้ดแล้ว!' : 'คัดลอกโค้ด Wing56DailyLog.gs'}</span>
-          </button>
-        </div>
-        <pre className="code-block">
-          <code>{generatedDailyLogCode}</code>
-        </pre>
-      </div>
     </section>
   );
 }

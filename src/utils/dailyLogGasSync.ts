@@ -1,6 +1,7 @@
 import type { AppSettings } from '../types/incident';
 import type { DailyLogOrigin, DailyLogRecord, NewsCategoryId } from '../types/news';
-import { formatThaiDateTime } from './thaiDate';
+import { fetchWithTimeout } from './fetchTimeout';
+import { formatThaiDateTime } from './thaiDateFormat';
 
 export const DEFAULT_DAILY_LOG_MASTER_SHEET = 'รวมข่าวกรองประจำวัน';
 
@@ -59,7 +60,7 @@ export async function verifyStaffPinWithGas(
   }
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
@@ -69,7 +70,7 @@ export async function verifyStaffPinWithGas(
     });
 
     if (!res.ok) {
-      return { ok: false, message: `GAS ตอบกลับ HTTP ${res.status}` };
+      return { ok: false, message: `ระบบฐานข้อมูลตอบกลับ HTTP ${res.status}` };
     }
     const text = await res.text();
     try {
@@ -79,12 +80,12 @@ export async function verifyStaffPinWithGas(
         ok,
         message:
           json.message ||
-          (ok ? 'ยืนยันตัวตนเจ้าหน้าที่สำเร็จ' : 'รหัสผ่านไม่ถูกต้อง หรือยังไม่ได้ตั้งค่า STAFF_PIN ใน GAS'),
+          (ok ? 'ยืนยันตัวตนเจ้าหน้าที่สำเร็จ' : 'รหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง'),
       };
     } catch {
       return {
         ok: false,
-        message: 'รูปแบบผลลัพธ์จาก GAS ไม่ถูกต้อง (โปรดตรวจสอบการ Deploy Wing56DailyLog.gs)',
+        message: 'รูปแบบผลลัพธ์จากระบบชีทแผนกไม่ถูกต้อง กรุณาตรวจสอบการเชื่อมต่อและสิทธิ์การเข้าถึง',
       };
     }
   } catch (err) {
@@ -106,7 +107,7 @@ export async function testDailyLogGasConnection(
   }
   try {
     const sep = url.includes('?') ? '&' : '?';
-    const res = await fetch(`${url}${sep}action=ping`, { method: 'GET' });
+    const res = await fetchWithTimeout(`${url}${sep}action=ping`, { method: 'GET' });
     if (!res.ok) {
       return { ok: false, message: `GAS ตอบกลับสถานะ HTTP ${res.status}` };
     }
@@ -155,7 +156,7 @@ export async function sendDailyLogToGas(
   const categorySheetName = DAILY_LOG_CATEGORY_TABS[record.category] || 'ความมั่นคงและเหตุรุนแรง';
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
@@ -215,7 +216,7 @@ export async function deleteDailyLogFromGas(
   const categorySheetName = DAILY_LOG_CATEGORY_TABS[category] || 'ความมั่นคงและเหตุรุนแรง';
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
@@ -302,14 +303,30 @@ export async function pullDailyLogsFromGas(
     const masterSheet = encodeURIComponent(
       (settings.dailyLogMasterSheetName || '').trim() || DEFAULT_DAILY_LOG_MASTER_SHEET
     );
-    const res = await fetch(`${url}${sep}action=fetch_daily_logs&masterSheet=${masterSheet}`, {
-      method: 'GET',
-    });
+    const res = await fetchWithTimeout(
+      `${url}${sep}action=fetch_daily_logs&masterSheet=${masterSheet}`,
+      {
+        method: 'GET',
+      }
+    );
     if (!res.ok) {
-      return { ok: false, records: [], message: `GAS ตอบกลับ HTTP ${res.status}` };
+      return { ok: false, records: [], message: `ระบบฐานข้อมูลตอบกลับ HTTP ${res.status}` };
     }
     const text = await res.text();
-    const json = JSON.parse(text);
+    const json = JSON.parse(text) as unknown;
+    if (
+      json &&
+      typeof json === 'object' &&
+      'ok' in json &&
+      (json as { ok?: unknown }).ok === false
+    ) {
+      const errObj = json as { message?: unknown; error?: unknown };
+      return {
+        ok: false,
+        records: [],
+        message: String(errObj.message || errObj.error || 'ระบบชีทแผนกแจ้งข้อผิดพลาด'),
+      };
+    }
     const records = parsePulledDailyLogsResponse(json);
     return {
       ok: true,

@@ -1,5 +1,10 @@
 import type { IncidentRecord } from '../types/incident';
-import { formatThaiDateTime, formatThaiNumericDate, toThaiDigits } from './thaiDate';
+import {
+  formatThaiDateTime,
+  formatThaiNumericDate,
+  getBangkokYmd,
+  toThaiDigits,
+} from './thaiDateFormat';
 
 function escapeCsvCell(value: unknown): string {
   const str = String(value ?? '')
@@ -73,7 +78,7 @@ export function buildIncidentsCsv(incidents: IncidentRecord[]): string {
 /** Export incidents list to UTF-8 BOM CSV for Excel / IPB analysis. */
 export function exportIncidentsToCsv(incidents: IncidentRecord[], filenamePrefix = 'situation-report'): void {
   const csv = buildIncidentsCsv(incidents);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getBangkokYmd();
   triggerCsvDownload(`${filenamePrefix}-${today}.csv`, csv);
 }
 
@@ -89,7 +94,7 @@ export function exportIpbMatrixToCsv(
     r.total,
   ]);
   const csv = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getBangkokYmd();
   triggerCsvDownload(`ipb-matrix-${today}.csv`, csv);
 }
 
@@ -249,7 +254,7 @@ export function exportIncidentsToKml(
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.kml`;
+  link.download = `${filenamePrefix}-${getBangkokYmd()}.kml`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

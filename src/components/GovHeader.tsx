@@ -19,7 +19,7 @@ import {
 import type { AppSettings } from '../types/incident';
 import type { NewsCategoryId } from '../types/news';
 import { NEWS_CATEGORIES } from '../utils/newsCurator';
-import { formatThaiDateTime } from '../utils/thaiDate';
+import { formatThaiDateTime, getBangkokYmd } from '../utils/thaiDateFormat';
 import type { ComplianceModalTab } from './GovComplianceModal';
 
 export type ActiveTab =
@@ -49,7 +49,7 @@ const TOPBAR_TITLES: Record<ActiveTab, string> = {
   entry: 'บันทึกเหตุการณ์ IPB & จับพิกัดอัตโนมัติ',
   ipb: 'แดชบอร์ด & แผนที่วิเคราะห์ IPB',
   'map-list': 'คลังรายการเหตุการณ์ & ส่งออกข้อมูล',
-  settings: 'ตั้งค่าระบบ & เชื่อมต่อ Google Apps Script',
+  settings: 'ตั้งค่าระบบและเชื่อมต่อข้อมูล',
 };
 
 interface SidebarProps {
@@ -190,8 +190,8 @@ export function W56Sidebar({
             </div>
             {!collapsed && (
               <div className="w56-brand-titles">
-                <span className="w56-brand-name">Intelligence Hub</span>
-                <span className="w56-brand-unit">ผขว.บก.บน.56</span>
+                <span className="w56-brand-name">ศูนย์ข่าวกรอง บน.56</span>
+                <span className="w56-brand-unit">แผนกข่าวกรอง กองบิน 56</span>
               </div>
             )}
           </button>
@@ -392,17 +392,13 @@ export function GovHeader({
   onToggleHighContrast,
   onOpenMobileSidebar,
 }: GovHeaderProps) {
-  const todayLabel = formatThaiDateTime(new Date().toISOString().slice(0, 10), {
+  const todayLabel = formatThaiDateTime(getBangkokYmd(), {
     shortMonth: true,
     includeTime: false,
   });
 
   return (
     <header className="w56-topbar" role="banner">
-      <a href="#main-content" className="skip-link">
-        ข้ามไปยังเนื้อหาหลัก
-      </a>
-
       <div className="w56-topbar-left">
         <button
           type="button"
@@ -428,37 +424,40 @@ export function GovHeader({
           <span>{themeDark ? '☀ โหมดสว่าง' : '☾ โหมดมืด'}</span>
         </button>
 
-        <div className="w56-font-group" role="group" aria-label="ปรับขนาดตัวอักษร 3 ระดับ">
-          <button
-            type="button"
-            className={`w56-font-btn ${fontSizeMode === 'sm' ? 'active-primary' : ''}`}
-            onClick={() => onChangeFontSize('sm')}
-            aria-pressed={fontSizeMode === 'sm'}
-            aria-label="ลดขนาดตัวอักษร (ก-)"
-            title="ลดขนาดตัวอักษร"
-          >
-            ก-
-          </button>
-          <button
-            type="button"
-            className={`w56-font-btn ${fontSizeMode === 'md' ? 'active-primary' : ''}`}
-            onClick={() => onChangeFontSize('md')}
-            aria-pressed={fontSizeMode === 'md'}
-            aria-label="ขนาดตัวอักษรปกติ (ก)"
-            title="ขนาดตัวอักษรปกติ"
-          >
-            ก
-          </button>
-          <button
-            type="button"
-            className={`w56-font-btn ${fontSizeMode === 'lg' ? 'active-primary' : ''}`}
-            onClick={() => onChangeFontSize('lg')}
-            aria-pressed={fontSizeMode === 'lg'}
-            aria-label="เพิ่มขนาดตัวอักษร (ก+)"
-            title="เพิ่มขนาดตัวอักษร"
-          >
-            ก+
-          </button>
+        <div className="w56-font-wrap">
+          <span className="w56-ctl-label hide-md">ตัวอักษร:</span>
+          <div className="w56-font-group" role="group" aria-label="ปรับขนาดตัวอักษร 3 ระดับ">
+            <button
+              type="button"
+              className={`w56-font-btn ${fontSizeMode === 'sm' ? 'active-primary' : ''}`}
+              onClick={() => onChangeFontSize('sm')}
+              aria-pressed={fontSizeMode === 'sm'}
+              aria-label="ลดขนาดตัวอักษร (ก-)"
+              title="ตัวอักษรเล็ก"
+            >
+              ก-
+            </button>
+            <button
+              type="button"
+              className={`w56-font-btn ${fontSizeMode === 'md' ? 'active-primary' : ''}`}
+              onClick={() => onChangeFontSize('md')}
+              aria-pressed={fontSizeMode === 'md'}
+              aria-label="ขนาดตัวอักษรปกติ (ก)"
+              title="ตัวอักษรปกติ"
+            >
+              ก
+            </button>
+            <button
+              type="button"
+              className={`w56-font-btn ${fontSizeMode === 'lg' ? 'active-primary' : ''}`}
+              onClick={() => onChangeFontSize('lg')}
+              aria-pressed={fontSizeMode === 'lg'}
+              aria-label="เพิ่มขนาดตัวอักษร (ก+)"
+              title="ตัวอักษรใหญ่ อ่านง่าย"
+            >
+              ก+
+            </button>
+          </div>
         </div>
 
         <button
@@ -468,16 +467,16 @@ export function GovHeader({
           aria-pressed={highContrast}
           title="สลับโหมดความเปรียบต่างสูง"
         >
-          <span>{highContrast ? 'โหมดปกติ' : 'ความเปรียบต่างสูง'}</span>
+          <span>{highContrast ? 'สีปกติ' : 'สีชัดพิเศษ'}</span>
         </button>
 
         {staffUnlocked && (
           <span
-            className="w56-status-pill"
+            className="w56-status-pill hide-md"
             title={
               settings.gasWebhookUrl || settings.dailyLogGasUrl
-                ? `เชื่อมต่อ GAS พร้อมใช้${lastPulledAt ? ` • ซิงก์ล่าสุด ${lastPulledAt} น.` : ''}`
-                : 'ยังไม่ตั้งค่า Webhook Google Apps Script'
+                ? `เชื่อมต่อฐานข้อมูลแผนกแล้ว${lastPulledAt ? ` • ซิงก์ล่าสุด ${lastPulledAt} น.` : ''}`
+                : 'ยังไม่ได้ตั้งค่าการเชื่อมต่อฐานข้อมูลกลาง (บันทึกไว้ในเครื่อง)'
             }
           >
             <span
@@ -485,12 +484,12 @@ export function GovHeader({
                 settings.gasWebhookUrl || settings.dailyLogGasUrl ? 'online' : 'unconfigured'
               }`}
             />
-            <span className="hide-md">
+            <span>
               {settings.gasWebhookUrl || settings.dailyLogGasUrl
                 ? pendingSyncCount > 0
-                  ? `รอซิงก์ ${pendingSyncCount}`
-                  : 'GAS พร้อมใช้'
-                : 'โหมดออฟไลน์'}
+                  ? `รอส่ง ${pendingSyncCount} รายการ`
+                  : 'เชื่อมต่อระบบแล้ว'
+                : 'เก็บข้อมูลในเครื่อง'}
               {lastPulledAt ? ` • ${lastPulledAt}` : ''}
             </span>
           </span>
@@ -542,6 +541,70 @@ export function GovBreadcrumb({ activeTab, onGoHome }: GovBreadcrumbProps) {
           </span>
         </li>
       </ol>
+    </nav>
+  );
+}
+
+interface MobileBottomNavProps {
+  activeTab: ActiveTab;
+  staffUnlocked: boolean;
+  onChangeTab: (tab: ActiveTab) => void;
+  onOpenHelp: () => void;
+  onOpenMenu: () => void;
+}
+
+export function W56MobileBottomNav({
+  activeTab,
+  staffUnlocked,
+  onChangeTab,
+  onOpenHelp,
+  onOpenMenu,
+}: MobileBottomNavProps) {
+  return (
+    <nav className="w56-mobile-bottom-nav" aria-label="แถบนำทางด่วนสำหรับมือถือ">
+      <button
+        type="button"
+        className={`w56-mob-nav-btn ${activeTab === 'news-hub' ? 'active' : ''}`}
+        onClick={() => onChangeTab('news-hub')}
+      >
+        <Newspaper size={18} aria-hidden="true" />
+        <span>ข่าวรายวัน</span>
+      </button>
+      <button
+        type="button"
+        className={`w56-mob-nav-btn ${activeTab === 'unified-map' ? 'active' : ''}`}
+        onClick={() => onChangeTab('unified-map')}
+      >
+        <Globe2 size={18} aria-hidden="true" />
+        <span>แผนที่รวม</span>
+      </button>
+      {staffUnlocked ? (
+        <button
+          type="button"
+          className={`w56-mob-nav-btn ${activeTab === 'daily-log' ? 'active' : ''}`}
+          onClick={() => onChangeTab('daily-log')}
+        >
+          <NotebookPen size={18} aria-hidden="true" />
+          <span>บันทึกประจำวัน</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="w56-mob-nav-btn"
+          onClick={onOpenHelp}
+        >
+          <BookOpen size={18} aria-hidden="true" />
+          <span>วิธีใช้งาน</span>
+        </button>
+      )}
+      <button
+        type="button"
+        className="w56-mob-nav-btn"
+        onClick={onOpenMenu}
+      >
+        <Menu size={18} aria-hidden="true" />
+        <span>เมนูทั้งหมด</span>
+      </button>
     </nav>
   );
 }

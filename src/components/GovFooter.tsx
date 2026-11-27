@@ -1,6 +1,6 @@
 import { Accessibility, BookOpen, FileCheck2, Map as MapIcon, Rss, ShieldCheck } from 'lucide-react';
+import { BOUNDARY_COUNT_SUMMARY } from '../data/geoMeta';
 import type { AppSettings } from '../types/incident';
-import { getBoundaryCountSummary } from '../utils/geoLookup';
 import type { ComplianceModalTab } from './GovComplianceModal';
 import type { ActiveTab } from './GovHeader';
 
@@ -12,7 +12,7 @@ interface GovFooterProps {
 }
 
 export function GovFooter({ settings, staffUnlocked, onChangeTab, onOpenModal }: GovFooterProps) {
-  const { districts, subdistricts } = getBoundaryCountSummary();
+  const { districts, subdistricts } = BOUNDARY_COUNT_SUMMARY;
   const thaiYear = new Date().getFullYear() + 543;
 
   return (
@@ -35,12 +35,12 @@ export function GovFooter({ settings, staffUnlocked, onChangeTab, onOpenModal }:
               </div>
             </div>
             <address className="footer-address">
-              กองบิน 56 ตำบลโคกม่วง อำเภอคลองหอยโข่ง จังหวัดสงขลา 90115
+              กองบิน&#160;56 ตำบลโคกม่วง อำเภอคลองหอยโข่ง จังหวัดสงขลา 90115
               <br />
               พื้นที่รับผิดชอบ: 7 จังหวัดภาคใต้ตอนล่าง ({districts} อำเภอ / {subdistricts} ตำบล)
             </address>
             <p className="footer-note">
-              จัดเก็บสำรองข้อมูลในเครื่องด้วย IndexedDB และเชื่อมต่อ Google Apps Script ตามสิทธิ์หน่วยงาน
+              ระบบจัดเก็บข้อมูลสำรองในเครื่องอย่างปลอดภัย และเชื่อมต่อฐานข้อมูลกลางตามสิทธิ์ของหน่วยงาน
             </p>
           </div>
 
@@ -177,7 +177,7 @@ export function GovFooter({ settings, staffUnlocked, onChangeTab, onOpenModal }:
         {/* 3 & 4: Copyright & Disclaimer bar */}
         <div className="footer-bottom-bar">
           <p>
-            &copy; พ.ศ. {thaiYear} แผนกข่าวกรอง กองบังคับการ กองบิน 56 • ข้อจำกัดความรับผิดชอบ:
+            &copy; พ.ศ. {thaiYear} แผนกข่าวกรอง กองบังคับการ กองบิน&#160;56 • ข้อจำกัดความรับผิดชอบ:
             ข้อมูลข่าวสาธารณะคัดกรองเพื่อสนับสนุนการติดตามสถานการณ์ ควรตรวจยืนยันกับต้นทางก่อนอ้างอิงปฏิบัติการ
           </p>
           <span className="footer-std-pill">DGA Web Std 3.0 • WCAG 2.1 AA</span>

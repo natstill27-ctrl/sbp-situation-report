@@ -33,8 +33,20 @@ function fromBase64Url(encoded: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-function isSafeHttpsUrl(value: unknown): value is string {
-  return typeof value === 'string' && /^https:\/\/[^\s]+$/i.test(value.trim());
+export function isSafeGasWebAppUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return (
+      parsed.protocol === 'https:' &&
+      parsed.hostname === 'script.google.com' &&
+      /^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(parsed.pathname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -75,9 +87,9 @@ export function decodeConfigHash(hash: string): Partial<AppSettings> | null {
     const parsed = JSON.parse(fromBase64Url(match[1])) as CompactConfigPayload;
     if (!parsed || typeof parsed !== 'object') return null;
 
-    if (parsed.w && !isSafeHttpsUrl(parsed.w)) return null;
-    if (parsed.f && !isSafeHttpsUrl(parsed.f)) return null;
-    if (parsed.dl && !isSafeHttpsUrl(parsed.dl)) return null;
+    if (parsed.w && !isSafeGasWebAppUrl(parsed.w)) return null;
+    if (parsed.f && !isSafeGasWebAppUrl(parsed.f)) return null;
+    if (parsed.dl && !isSafeGasWebAppUrl(parsed.dl)) return null;
 
     const result: Partial<AppSettings> = {};
     if (typeof parsed.w === 'string') result.gasWebhookUrl = parsed.w.trim();

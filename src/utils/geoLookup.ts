@@ -1,4 +1,5 @@
 import rawBoundaries from '../data/southern_boundaries.json';
+import { TARGET_PROVINCES } from '../data/geoMeta';
 import type { AreaMatch, WatchAreaTarget } from '../types/incident';
 
 export interface BoundaryGeometry {
@@ -17,7 +18,7 @@ export interface BoundaryEntry {
 
 const BOUNDARIES = rawBoundaries as BoundaryEntry[];
 
-const PROVINCE_ORDER = ['สงขลา', 'พัทลุง', 'ตรัง', 'สตูล', 'ปัตตานี', 'ยะลา', 'นราธิวาส'];
+const PROVINCE_ORDER = [...TARGET_PROVINCES];
 
 function pointInRing(lng: number, lat: number, ring: number[][]): boolean {
   let inside = false;

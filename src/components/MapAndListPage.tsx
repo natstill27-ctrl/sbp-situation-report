@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { AppSettings, IncidentRecord, SyncStatus } from '../types/incident';
 import { getCategoryColor } from '../utils/categoryColors';
+import { copyTextToClipboard } from '../utils/clipboard';
 import {
   exportIncidentsToCsv,
   exportIncidentsToKml,
@@ -139,9 +140,11 @@ export function MapAndListPage({
   const handleCopy = async (record: IncidentRecord, mode: 'line' | 'paper') => {
     const text =
       mode === 'line' ? formatIncidentForLine(record) : formatIncidentForPaper(record, true);
-    await navigator.clipboard.writeText(text);
-    setCopiedId(`${record.id}-${mode}`);
-    window.setTimeout(() => setCopiedId(null), 1800);
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      setCopiedId(`${record.id}-${mode}`);
+      window.setTimeout(() => setCopiedId(null), 1800);
+    }
   };
 
   const handleSyncAll = async () => {
@@ -360,7 +363,7 @@ export function MapAndListPage({
               }
             >
               <CloudDownload size={16} aria-hidden="true" />
-              <span>{pulling ? 'กำลังดึงข้อมูล...' : 'ดึงข้อมูลจาก GAS เดิม'}</span>
+              <span>{pulling ? 'กำลังดึงข้อมูล...' : 'ดึงข้อมูลล่าสุดจากระบบกลาง'}</span>
             </button>
           )}
           {unsyncedCount > 0 && (
@@ -725,7 +728,7 @@ export function MapAndListPage({
                           )}
                           <div className="cell-area">{area || 'ไม่ระบุพื้นที่'}</div>
                           {!item.inTargetArea && (
-                            <span className="badge badge-warn">นอกเขต 3 จว.+4 อ.</span>
+                            <span className="badge badge-warn">นอกเขต 7 จว.ภาคใต้ตอนล่าง</span>
                           )}
                         </td>
                         <td className="nowrap">
@@ -835,6 +838,7 @@ export function MapAndListPage({
                                   void onDeleteIncident(item.id);
                                 }
                               }}
+                              aria-label={`ลบรายการ ${item.id}`}
                               title="ลบรายการนี้"
                             >
                               <Trash2 size={12} aria-hidden="true" />
@@ -849,8 +853,11 @@ export function MapAndListPage({
                             <div className="quick-edit-box">
                               <div className="quick-edit-grid">
                                 <div>
-                                  <label className="sub-label">ประเภทเหตุการณ์</label>
+                                  <label htmlFor={`quick-cat-${item.id}`} className="sub-label">
+                                    ประเภทเหตุการณ์
+                                  </label>
                                   <select
+                                    id={`quick-cat-${item.id}`}
                                     className="form-select"
                                     value={quickDraft.category}
                                     onChange={(e) =>
@@ -868,8 +875,11 @@ export function MapAndListPage({
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="sub-label">จำนวนเหตุการณ์</label>
+                                  <label htmlFor={`quick-count-${item.id}`} className="sub-label">
+                                    จำนวนเหตุการณ์
+                                  </label>
                                   <input
+                                    id={`quick-count-${item.id}`}
                                     type="number"
                                     min={1}
                                     max={99}
@@ -884,8 +894,11 @@ export function MapAndListPage({
                                   />
                                 </div>
                                 <div>
-                                  <label className="sub-label">จังหวัด</label>
+                                  <label htmlFor={`quick-prov-${item.id}`} className="sub-label">
+                                    จังหวัด
+                                  </label>
                                   <select
+                                    id={`quick-prov-${item.id}`}
                                     className="form-select"
                                     value={
                                       provinces.includes(quickDraft.province)
@@ -910,9 +923,12 @@ export function MapAndListPage({
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="sub-label">อำเภอ</label>
+                                  <label htmlFor={`quick-dist-${item.id}`} className="sub-label">
+                                    อำเภอ
+                                  </label>
                                   {getDistrictsByProvince(quickDraft.province).length > 0 ? (
                                     <select
+                                      id={`quick-dist-${item.id}`}
                                       className="form-select"
                                       value={quickDraft.district}
                                       onChange={(e) =>
@@ -932,6 +948,7 @@ export function MapAndListPage({
                                     </select>
                                   ) : (
                                     <input
+                                      id={`quick-dist-${item.id}`}
                                       type="text"
                                       className="form-input"
                                       value={quickDraft.district}
@@ -942,10 +959,13 @@ export function MapAndListPage({
                                   )}
                                 </div>
                                 <div>
-                                  <label className="sub-label">ตำบล</label>
+                                  <label htmlFor={`quick-subdist-${item.id}`} className="sub-label">
+                                    ตำบล
+                                  </label>
                                   {getSubdistrictsByDistrict(quickDraft.province, quickDraft.district)
                                     .length > 0 ? (
                                     <select
+                                      id={`quick-subdist-${item.id}`}
                                       className="form-select"
                                       value={quickDraft.subdistrict}
                                       onChange={(e) =>
@@ -967,6 +987,7 @@ export function MapAndListPage({
                                     </select>
                                   ) : (
                                     <input
+                                      id={`quick-subdist-${item.id}`}
                                       type="text"
                                       className="form-input"
                                       value={quickDraft.subdistrict}
@@ -982,8 +1003,11 @@ export function MapAndListPage({
                               </div>
 
                               <div style={{ marginTop: '0.55rem' }}>
-                                <label className="sub-label">รายละเอียดเหตุการณ์</label>
+                                <label htmlFor={`quick-details-${item.id}`} className="sub-label">
+                                  รายละเอียดเหตุการณ์
+                                </label>
                                 <textarea
+                                  id={`quick-details-${item.id}`}
                                   className="form-textarea"
                                   rows={3}
                                   value={quickDraft.details}

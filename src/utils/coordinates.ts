@@ -1,6 +1,6 @@
 import * as mgrsLib from 'mgrs';
 import type { CoordinateFormat, ParsedCoordinate } from '../types/incident';
-import { fromThaiDigits } from './thaiDate';
+import { fromThaiDigits } from './thaiDateFormat';
 
 // WGS84 ellipsoid constants for exact UTM <-> Lat/Lng conversions (Zone 47N / 48N for Thailand)
 const WGS84_A = 6378137.0;

@@ -22,6 +22,8 @@ import {
 import { buildNiaProseSummary, getSourceReliabilityCode } from '../utils/intelBrief5w1h';
 import { NEWS_CATEGORIES, NEWS_CATEGORY_MAP } from '../utils/newsCurator';
 import { fetchDailyNewsFeed } from '../utils/newsFeedClient';
+import { createPmtilesRasterLayer } from '../utils/pmtilesLayer';
+import { escapeHtml, sanitizeHttpUrl } from '../utils/safeHtml';
 import { formatThaiDateTime, isWatchAlertActive } from '../utils/thaiDate';
 import type { BasemapType } from './LeafletMap';
 
@@ -61,15 +63,14 @@ interface UnifiedBriefingPin {
 const DEFAULT_CENTER: [number, number] = [6.95, 100.55];
 const DEFAULT_ZOOM = 8;
 
-function escapeHtml(value: string): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function createBasemapLayer(basemap: BasemapType): L.TileLayer {
+function createBasemapLayer(
+  offlinePmtilesUrl?: string,
+  basemap: BasemapType = 'osm'
+): L.GridLayer {
+  const pmtilesUrl = (offlinePmtilesUrl || '').trim();
+  if (pmtilesUrl) {
+    return createPmtilesRasterLayer(pmtilesUrl);
+  }
   if (basemap === 'satellite') {
     return L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -170,11 +171,14 @@ export function UnifiedSituationMapPage({
   const [timeWindowDays, setTimeWindowDays] = useState<7 | 30 | 90 | 0>(30);
   const [searchQuery, setSearchQuery] = useState('');
   const [basemap, setBasemap] = useState<BasemapType>('osm');
+  const [visibleCount, setVisibleCount] = useState(20);
 
   const provinces = useMemo(() => getTargetProvinces(), []);
+  const hasGasUrl = Boolean((settings.gasFetchUrl || settings.gasWebhookUrl).trim());
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const baseLayerRef = useRef<L.TileLayer | null>(null);
+  const baseLayerRef = useRef<L.GridLayer | null>(null);
+  const baseKeyRef = useRef<string>('');
   const boundaryLayerRef = useRef<L.GeoJSON | null>(null);
   const watchLayerRef = useRef<L.LayerGroup | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
@@ -182,38 +186,42 @@ export function UnifiedSituationMapPage({
 
   const loadAllNews = async (bustCache = false) => {
     const res = await fetchDailyNewsFeed(settings, {
-      preferLiveGas: Boolean((settings.gasFetchUrl || settings.gasWebhookUrl).trim()),
+      preferLiveGas: hasGasUrl,
       bustCache,
     });
-    setNewsItems(res.feed.items);
+    return res.feed.items;
   };
 
   useEffect(() => {
     let active = true;
     (async () => {
       setLoadingNews(true);
-      await loadAllNews(false);
-      if (active) setLoadingNews(false);
+      const items = await loadAllNews(false);
+      if (active) {
+        setNewsItems(items);
+        setLoadingNews(false);
+      }
     })();
     return () => {
       active = false;
     };
-  }, []);
+  }, [hasGasUrl]);
 
   const handleRefreshAll = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([
+      const [items] = await Promise.all([
         loadAllNews(true),
         onRefreshDailyLogs ? onRefreshDailyLogs() : Promise.resolve(),
       ]);
+      setNewsItems(items);
     } finally {
       setRefreshing(false);
     }
   };
 
   const activeWatchAlerts = useMemo(
-    () => watchAlerts.filter((w) => isWatchAlertActive(w)),
+    () => watchAlerts.filter((w) => isWatchAlertActive(w) === 'active'),
     [watchAlerts]
   );
 
@@ -356,7 +364,11 @@ export function UnifiedSituationMapPage({
     [filteredPins]
   );
 
-  // Initialize Leaflet map once
+  useEffect(() => {
+    setVisibleCount(20);
+  }, [provinceFilter, categoryFilter, timeWindowDays, searchQuery, showNewsLayer, showDailyLogLayer, showIpbLayer]);
+
+  // Initialize Leaflet map once with ResizeObserver so sidebar toggle never leaves grey strips
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -364,7 +376,8 @@ export function UnifiedSituationMapPage({
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
     });
-    const base = createBasemapLayer('osm').addTo(map);
+    const base = createBasemapLayer(settings.offlinePmtilesUrl, basemap).addTo(map);
+    baseKeyRef.current = `${(settings.offlinePmtilesUrl || '').trim()}|${basemap}`;
     const watchGroup = L.layerGroup().addTo(map);
     const markerGroup = L.layerGroup().addTo(map);
 
@@ -373,10 +386,24 @@ export function UnifiedSituationMapPage({
     watchLayerRef.current = watchGroup;
     markerLayerRef.current = markerGroup;
 
+    const initTimer = window.setTimeout(() => map.invalidateSize(), 150);
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined' && mapContainerRef.current
+        ? new ResizeObserver(() => {
+            map.invalidateSize();
+          })
+        : null;
+    if (resizeObserver && mapContainerRef.current) {
+      resizeObserver.observe(mapContainerRef.current);
+    }
+
     return () => {
+      window.clearTimeout(initTimer);
+      resizeObserver?.disconnect();
       map.remove();
       mapRef.current = null;
       baseLayerRef.current = null;
+      baseKeyRef.current = '';
       boundaryLayerRef.current = null;
       watchLayerRef.current = null;
       markerLayerRef.current = null;
@@ -384,16 +411,21 @@ export function UnifiedSituationMapPage({
     };
   }, []);
 
-  // Update basemap
+  // Update basemap or offline PMTiles layer
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    const nextKey = `${(settings.offlinePmtilesUrl || '').trim()}|${basemap}`;
+    if (baseKeyRef.current === nextKey) return;
+    baseKeyRef.current = nextKey;
+
     if (baseLayerRef.current) {
       map.removeLayer(baseLayerRef.current);
+      baseLayerRef.current = null;
     }
-    baseLayerRef.current = createBasemapLayer(basemap).addTo(map);
+    baseLayerRef.current = createBasemapLayer(settings.offlinePmtilesUrl, basemap).addTo(map);
     baseLayerRef.current.bringToBack();
-  }, [basemap]);
+  }, [basemap, settings.offlinePmtilesUrl]);
 
   // Toggle district boundaries (77 districts across 7 provinces)
   useEffect(() => {
@@ -416,7 +448,9 @@ export function UnifiedSituationMapPage({
         onEachFeature: (feature, fLayer) => {
           const props = feature.properties as { province?: string; district?: string } | undefined;
           if (props?.district && props?.province) {
-            fLayer.bindTooltip(`อ.${props.district} จ.${props.province}`, { sticky: true });
+            fLayer.bindTooltip(escapeHtml(`อ.${props.district} จ.${props.province}`), {
+              sticky: true,
+            });
           }
         },
       }).addTo(map);
@@ -480,7 +514,7 @@ export function UnifiedSituationMapPage({
           ? 'บันทึกประจำวันแผนก ผขว.'
           : pin.sourceType === 'ipb'
             ? 'เหตุการณ์ IPB'
-            : 'ข่าวกรองรายวัน (OSINT)';
+            : 'ข่าวรายวันจากสื่อที่คัดกรอง';
 
       const areaText = [
         pin.subdistrict ? `ต.${pin.subdistrict}` : '',
@@ -490,9 +524,10 @@ export function UnifiedSituationMapPage({
         .filter(Boolean)
         .join(' ');
 
-      const linkHtml = pin.link
+      const safeLink = sanitizeHttpUrl(pin.link);
+      const linkHtml = safeLink
         ? `<div style="margin-top:6px;"><a href="${escapeHtml(
-            pin.link
+            safeLink
           )}" target="_blank" rel="noopener noreferrer" style="color:#1d5bb8;font-weight:700;">เปิดข่าวต้นฉบับ ↗</a></div>`
         : '';
 
@@ -527,6 +562,8 @@ export function UnifiedSituationMapPage({
 
       const marker = L.marker([pin.lat, pin.lng], {
         icon: createUnifiedDivIcon(pin.sourceType, pin.color),
+        title: pin.title,
+        alt: pin.title,
       })
         .bindPopup(popupHtml)
         .addTo(markerGroup);
@@ -590,7 +627,7 @@ export function UnifiedSituationMapPage({
         {/* 4 Briefing KPI Cards */}
         <div className="unified-kpi-grid">
           <div className="unified-kpi-card kpi-blue">
-            <span className="unified-kpi-label">ข่าวกรองรายวัน (OSINT)</span>
+            <span className="unified-kpi-label">ข่าวรายวันจากสื่อที่คัดกรอง</span>
             <strong className="unified-kpi-val">{countBySource.news}</strong>
           </div>
           <div className="unified-kpi-card kpi-gold">
@@ -754,6 +791,9 @@ export function UnifiedSituationMapPage({
 
       {/* Main Unified Leaflet Map */}
       <div className="gov-card" style={{ padding: '0.75rem', marginBottom: '1rem' }}>
+        <p className="map-usage-hint">
+          วิธีใช้แผนที่: กดที่จุดสีบนแผนที่เพื่ออ่านสรุปข่าว • กดปุ่มหมวดด้านบนเพื่อเปิดหรือปิดข้อมูลแต่ละประเภท
+        </p>
         <div
           ref={mapContainerRef}
           className="leaflet-map-frame"
@@ -762,7 +802,7 @@ export function UnifiedSituationMapPage({
         />
         <div className="unified-legend-strip">
           <span>
-            <span className="legend-dot news" aria-hidden="true" /> วงกลม = ข่าวกรองรายวัน
+            <span className="legend-dot news" aria-hidden="true" /> วงกลม = ข่าวรายวัน
           </span>
           <span>
             <span className="legend-dot daily-log" aria-hidden="true" /> สี่เหลี่ยมขอบทอง = บันทึกประจำวันแผนก
@@ -773,6 +813,19 @@ export function UnifiedSituationMapPage({
           <span className="unified-legend-note">
             แสดงบนแผนที่แล้ว {mappablePins.length} / {filteredPins.length} รายการ
           </span>
+        </div>
+        <div className="unified-cat-legend" aria-label="ความหมายสีของ 7 หมวดข่าว">
+          <span className="unified-cat-legend-title">สีตามหมวดข่าว:</span>
+          {NEWS_CATEGORIES.map((cat) => (
+            <span key={cat.id} className="unified-cat-legend-item">
+              <span
+                className="w56-subcat-dot"
+                style={{ backgroundColor: cat.color }}
+                aria-hidden="true"
+              />
+              <span>{cat.shortLabel}</span>
+            </span>
+          ))}
         </div>
       </div>
 
@@ -792,62 +845,83 @@ export function UnifiedSituationMapPage({
             ไม่พบรายการที่ตรงกับตัวกรองปัจจุบัน ลองเปิดชั้นข้อมูลเพิ่มเติมหรือขยายห้วงเวลา
           </p>
         ) : (
-          <div className="unified-list">
-            {filteredPins.slice(0, 60).map((pin) => {
-              const sourceTag =
-                pin.sourceType === 'daily-log'
-                  ? 'บันทึกแผนก ผขว.'
-                  : pin.sourceType === 'ipb'
-                    ? 'IPB'
-                    : 'ข่าวรายวัน';
-              const areaLabel = [
-                pin.subdistrict ? `ต.${pin.subdistrict}` : '',
-                pin.district ? `อ.${pin.district}` : '',
-                pin.province ? `จ.${pin.province}` : '',
-              ]
-                .filter(Boolean)
-                .join(' ');
-              return (
-                <div key={pin.uid} className="unified-list-row">
-                  <div className="unified-list-main">
-                    <div className="unified-list-badges">
-                      <span
-                        className="news-cat-badge"
-                        style={{ backgroundColor: pin.color, color: '#ffffff' }}
-                      >
-                        {pin.categoryLabel}
-                      </span>
-                      <span className={`unified-source-chip type-${pin.sourceType}`}>
-                        {sourceTag}
-                      </span>
-                      <span className="news-prov-chip">{areaLabel || 'ภาคใต้ตอนล่าง'}</span>
-                      <span className="news-age-text">
-                        {formatThaiDateTime(pin.occurredAt, { shortMonth: true })}
-                      </span>
+          <>
+            <div className="unified-list">
+              {filteredPins.slice(0, visibleCount).map((pin) => {
+                const sourceTag =
+                  pin.sourceType === 'daily-log'
+                    ? 'บันทึกแผนก ผขว.'
+                    : pin.sourceType === 'ipb'
+                      ? 'IPB'
+                      : 'ข่าวรายวัน';
+                const areaLabel = [
+                  pin.subdistrict ? `ต.${pin.subdistrict}` : '',
+                  pin.district ? `อ.${pin.district}` : '',
+                  pin.province ? `จ.${pin.province}` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ');
+                return (
+                  <div key={pin.uid} className="unified-list-row">
+                    <div className="unified-list-main">
+                      <div className="unified-list-badges">
+                        <span
+                          className="news-cat-badge"
+                          style={{ backgroundColor: pin.color, color: '#ffffff' }}
+                        >
+                          {pin.categoryLabel}
+                        </span>
+                        <span className={`unified-source-chip type-${pin.sourceType}`}>
+                          {sourceTag}
+                        </span>
+                        <span className="news-prov-chip">{areaLabel || 'ภาคใต้ตอนล่าง'}</span>
+                        <span className="news-age-text">
+                          {formatThaiDateTime(pin.occurredAt, { shortMonth: true })}
+                        </span>
+                      </div>
+                      <p className="unified-list-title">{pin.title}</p>
+                      <p className="unified-list-summary">{pin.summary}</p>
                     </div>
-                    <p className="unified-list-title">{pin.title}</p>
-                    <p className="unified-list-summary">{pin.summary}</p>
+                    <div className="unified-list-actions">
+                      {pin.lat !== null && pin.lng !== null ? (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline"
+                          onClick={() => handleZoomToPin(pin)}
+                        >
+                          <Crosshair size={14} aria-hidden="true" />
+                          <span>ซูมดูบนแผนที่</span>
+                        </button>
+                      ) : (
+                        <span className="badge badge-info">
+                          <MapPin size={12} aria-hidden="true" /> ไม่มีพิกัดรายจุด
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="unified-list-actions">
-                    {pin.lat !== null && pin.lng !== null ? (
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline"
-                        onClick={() => handleZoomToPin(pin)}
-                      >
-                        <Crosshair size={14} aria-hidden="true" />
-                        <span>ซูมดูบนแผนที่</span>
-                      </button>
-                    ) : (
-                      <span className="badge badge-info">
-                        <MapPin size={12} aria-hidden="true" /> ไม่มีพิกัดรายจุด
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+            {filteredPins.length > visibleCount && (
+              <div className="news-load-more-bar">
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => setVisibleCount((c) => c + 20)}
+                >
+                  ดูรายการเพิ่มเติม (+20 • แสดงแล้ว {Math.min(visibleCount, filteredPins.length)} จาก{' '}
+                  {filteredPins.length} รายการ)
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => setVisibleCount(filteredPins.length)}
+                >
+                  แสดงทั้งหมด
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </section>

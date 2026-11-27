@@ -1,0 +1,23 @@
+{
+  "name": "ศูนย์บริการด้านการข่าวกรอง ผขว.บก.บน.56",
+  "short_name": "ข่าวกรอง บน.56",
+  "description": "ศูนย์ข่าวกรองรายวัน แผนที่สรุปสถานการณ์รวม 7 จังหวัดภาคใต้ตอนล่าง และระบบวิเคราะห์ IPB",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6f9",
+  "theme_color": "#0f2d5c",
+  "lang": "th",
+  "icons": [
+    {
+      "src": "./wing56-logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "./wing56-logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useRef } from 'react';
 import {
   Accessibility,
   BookOpen,
@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { NewsCategoryId } from '../types/news';
 import { NEWS_CATEGORIES } from '../utils/newsCurator';
+import { useModalFocusTrap } from '../utils/useModalFocusTrap';
 import type { ActiveTab } from './GovHeader';
 
 export type ComplianceModalTab =
@@ -43,16 +44,8 @@ export function GovComplianceModal({
   onClose,
   onNavigateTab,
 }: GovComplianceModalProps) {
-  useEffect(() => {
-    if (!activeModal) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeModal, onClose]);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  useModalFocusTrap(Boolean(activeModal), dialogRef, onClose);
 
   if (!activeModal) return null;
 
@@ -67,10 +60,12 @@ export function GovComplianceModal({
       }}
     >
       <div
+        ref={dialogRef}
         className="gov-modal-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="gov-modal-title"
+        tabIndex={-1}
       >
         <div className="gov-modal-header">
           <div>
@@ -96,9 +91,11 @@ export function GovComplianceModal({
             return (
               <button
                 key={tab.id}
+                id={`gov-tab-${tab.id}`}
                 type="button"
                 role="tab"
                 aria-selected={selected}
+                aria-controls="gov-modal-tabpanel"
                 className={`gov-modal-tab ${selected ? 'active' : ''}`}
                 onClick={() => onChangeModal(tab.id)}
               >
@@ -109,7 +106,12 @@ export function GovComplianceModal({
           })}
         </div>
 
-        <div className="gov-modal-body">
+        <div
+          id="gov-modal-tabpanel"
+          role="tabpanel"
+          aria-labelledby={`gov-tab-${activeModal}`}
+          className="gov-modal-body"
+        >
           {activeModal === 'sitemap' && (
             <div className="gov-compliance-section">
               <p className="gov-compliance-lead">
@@ -231,6 +233,20 @@ export function GovComplianceModal({
 
           {activeModal === 'faq' && (
             <div className="gov-compliance-section">
+              <div className="w56-starter-steps">
+                <h3>เริ่มต้นใช้งานง่ายๆ ใน 3 ขั้นตอน (สำหรับผู้ใช้งานทั่วไป)</h3>
+                <ol>
+                  <li>
+                    <strong>อ่านข่าวประจำวัน:</strong> กดเลือกกล่องหมวดข่าวที่สนใจ หรือเลือก &ldquo;จังหวัด&rdquo; จากช่องค้นหาด้านบน ระบบสรุปให้อ่านง่ายใน 1 ย่อหน้า และกดปุ่ม &ldquo;คัดลอกส่ง LINE&rdquo; ได้ทันที
+                  </li>
+                  <li>
+                    <strong>ดูแผนที่สถานการณ์:</strong> กดปุ่ม &ldquo;แผนที่สรุปสถานการณ์รวม&rdquo; แล้วแตะที่จุดสีบนแผนที่เพื่ออ่านรายละเอียดเหตุการณ์ในแต่ละอำเภอ
+                  </li>
+                  <li>
+                    <strong>ปรับหน้าจอให้อ่านสบายตา:</strong> กดปุ่ม <strong>ก+</strong> ที่มุมขวาบนเพื่อขยายตัวอักษรให้ใหญ่ขึ้น หรือกดปุ่ม <strong>โหมดมืด / สีชัดพิเศษ</strong> ได้ตลอดเวลา
+                  </li>
+                </ol>
+              </div>
               <p className="gov-compliance-lead">
                 คำอธิบายการใช้งานหลักและคำถามที่พบบ่อย (Help &amp; FAQ) สำหรับเจ้าหน้าที่และผู้ใช้งาน
               </p>

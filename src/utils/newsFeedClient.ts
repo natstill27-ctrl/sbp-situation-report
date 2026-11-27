@@ -1,6 +1,7 @@
 import newsRules from '../data/newsRules.json';
 import type { AppSettings } from '../types/incident';
 import type { CuratedNewsItem, DailyNewsFeed, NewsCategoryId } from '../types/news';
+import { fetchWithTimeout } from './fetchTimeout';
 import { curateRawNewsItems } from './newsCurator';
 
 export interface FetchNewsFeedResult {
@@ -91,7 +92,7 @@ export async function fetchDailyNewsFeed(
 
   try {
     const staticUrl = options.bustCache ? `./daily-news.json?t=${Date.now()}` : './daily-news.json';
-    const res = await fetch(staticUrl, { method: 'GET' });
+    const res = await fetchWithTimeout(staticUrl, { method: 'GET' });
     if (res.ok) {
       const json = (await res.json()) as unknown;
       staticFeed = normalizeFeedPayload(json, 'static');
@@ -107,7 +108,7 @@ export async function fetchDailyNewsFeed(
     try {
       const sep = baseGasUrl.includes('?') ? '&' : '?';
       const gasUrl = `${baseGasUrl}${sep}page=news`;
-      const gasRes = await fetch(gasUrl, { method: 'GET' });
+      const gasRes = await fetchWithTimeout(gasUrl, { method: 'GET' });
       if (gasRes.ok) {
         const text = await gasRes.text();
         const parsed = JSON.parse(text) as {

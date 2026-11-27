@@ -22,7 +22,7 @@
   --focus-ring: #1d5bb8;
   --shadow-sm: 0 1px 2px rgba(22, 32, 50, 0.05), 0 4px 14px -8px rgba(22, 32, 50, 0.12);
   --shadow-md: 0 4px 14px rgba(22, 32, 50, 0.1);
-  --radius: 12px;
+  --radius: 14px;
   --w56-chrome-bg: rgba(255, 255, 255, 0.96);
   --w56-chrome-border: #d8e0eb;
 }
@@ -95,10 +95,10 @@ html.high-contrast {
 
 body {
   margin: 0;
-  font-family: 'Inter', 'Noto Sans Thai', 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Noto Sans Thai', 'Sarabun', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background-color: var(--bg-page);
   color: var(--text-main);
-  line-height: 1.55;
+  line-height: 1.65;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -503,12 +503,17 @@ html.high-contrast .section-title {
 .form-select,
 .form-textarea {
   width: 100%;
-  padding: 0.55rem 0.75rem;
+  padding: 0.55rem 0.78rem;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--bg-card);
   color: var(--text-main);
   transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+}
+
+.form-input,
+.form-select {
+  min-height: 42px;
 }
 
 .form-input:focus,
@@ -652,8 +657,9 @@ html.high-contrast .section-title {
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
+  min-height: 42px;
   padding: 0.55rem 1rem;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid transparent;
   font-weight: 700;
   cursor: pointer;
@@ -696,7 +702,8 @@ html.high-contrast .section-title {
 }
 
 .btn-sm {
-  padding: 0.35rem 0.7rem;
+  min-height: 36px;
+  padding: 0.35rem 0.72rem;
   font-size: 0.85rem;
 }
 
@@ -1091,6 +1098,11 @@ html.high-contrast .kpi-value {
   align-items: center;
 }
 
+.webhook-input-row .btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .cat-chips-wrap {
   display: flex;
   flex-wrap: wrap;
@@ -1253,9 +1265,18 @@ html.high-contrast .kpi-value {
 
 /* Basemap Switcher, Dashboard Presets & Config Share */
 .leaflet-wrapper {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+}
+
+.leaflet-map-frame {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
 }
 
 .basemap-switcher {
@@ -2465,7 +2486,7 @@ html.high-contrast .quick-edit-box {
 
 .news-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
   margin-top: 1rem;
 }
@@ -2476,11 +2497,13 @@ html.high-contrast .quick-edit-box {
   border: 1px solid var(--border-light);
   border-top: 4px solid var(--cat-color);
   border-radius: 12px;
-  padding: 0.78rem 0.9rem;
+  padding: 0.82rem 0.95rem;
   cursor: pointer;
   transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
   color: var(--text-main);
   box-shadow: var(--shadow-sm);
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .news-kpi-card:hover {
@@ -2529,11 +2552,25 @@ html.theme-dark .news-kpi-card.active {
   margin-bottom: 1rem;
 }
 
+.news-pills-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
 .news-cat-pills {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
-  margin-bottom: 0.85rem;
+}
+
+.news-filter-extra-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 .news-cat-pill {
@@ -2892,7 +2929,7 @@ html.theme-dark .news-kpi-card.active {
 .w56-sidebar-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 45;
+  z-index: 1200;
   background: rgba(15, 23, 42, 0.55);
   backdrop-filter: blur(2px);
 }
@@ -2908,7 +2945,7 @@ html.theme-dark .news-kpi-card.active {
   background: var(--w56-chrome-bg);
   border-right: 1px solid var(--w56-chrome-border);
   backdrop-filter: blur(12px);
-  z-index: 50;
+  z-index: 1250;
   transition: width 0.2s ease, transform 0.2s ease;
 }
 
@@ -3157,7 +3194,7 @@ html.theme-dark .w56-nav-item.active {
 .w56-topbar {
   position: sticky;
   top: 0;
-  z-index: 30;
+  z-index: 1100;
   min-height: 56px;
   padding: 0.45rem 1.25rem;
   background: var(--w56-chrome-bg);
@@ -3596,7 +3633,7 @@ html.theme-dark .w56-font-btn.active-primary {
 .gov-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 90;
+  z-index: 2000;
   background: rgba(15, 23, 42, 0.64);
   backdrop-filter: blur(4px);
   display: flex;
@@ -4076,5 +4113,173 @@ html.theme-dark .gov-modal-tab.active {
   }
   .unified-list-row {
     flex-direction: column;
+  }
+}
+
+/* ============================================================================
+ * Universal Low-Tech UX Additions (Quick Start, Bottom Nav, Legends, A11y)
+ * ========================================================================== */
+.w56-font-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.w56-ctl-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.w56-font-btn {
+  min-height: 36px;
+  min-width: 36px;
+}
+
+.news-load-more-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1.15rem;
+}
+
+.map-usage-hint {
+  margin: 0 0 0.6rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  background: var(--info-bg);
+  color: var(--info);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.unified-cat-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  padding: 0.45rem 0.6rem 0.15rem;
+  margin-top: 0.25rem;
+  border-top: 1px dashed var(--border-light);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.unified-cat-legend-title {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.unified-cat-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.w56-starter-steps {
+  background: var(--info-bg);
+  border: 1px solid rgba(29, 91, 184, 0.24);
+  border-radius: 12px;
+  padding: 0.95rem 1.15rem;
+  margin-bottom: 1rem;
+}
+
+.w56-starter-steps h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: var(--gov-navy-800);
+}
+
+.w56-starter-steps ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.gov-advanced-details {
+  cursor: default;
+}
+
+.gov-advanced-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-weight: 700;
+  font-size: 1.02rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.gov-advanced-summary::-webkit-details-marker {
+  display: none;
+}
+
+.w56-mobile-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  .gov-main {
+    padding-bottom: 5.5rem;
+  }
+
+  .w56-mobile-bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1150;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    background: var(--w56-chrome-bg);
+    border-top: 1px solid var(--w56-chrome-border);
+    backdrop-filter: blur(12px);
+    padding: 0.3rem 0.25rem calc(0.35rem + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);
+  }
+
+  .w56-mob-nav-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    min-height: 48px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 8px;
+  }
+
+  .w56-mob-nav-btn.active {
+    color: var(--gov-navy-800);
+    background: var(--info-bg);
+    font-weight: 700;
+  }
+}
+
+@media print {
+  .w56-mobile-bottom-nav {
+    display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

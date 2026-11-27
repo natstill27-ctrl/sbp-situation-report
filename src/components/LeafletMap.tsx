@@ -3,11 +3,13 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { IncidentRecord, WatchAlertRecord, WatchAreaTarget } from '../types/incident';
 import { getCategoryColor } from '../utils/categoryColors';
-import { getMilSymbolIconOptions } from '../utils/milSymbols';
 import { createPmtilesRasterLayer } from '../utils/pmtilesLayer';
+import { escapeHtml } from '../utils/safeHtml';
 import { classifyIncidentSeverity } from '../utils/severity';
 import { formatThaiDateTime, isWatchAlertActive } from '../utils/thaiDate';
 import { getDistrictBoundariesGeoJson, getWatchZonePolygonsGeoJson } from '../utils/geoLookup';
+
+type MilSymbolModule = typeof import('../utils/milSymbols');
 
 export type BasemapType = 'osm' | 'satellite' | 'topo';
 
@@ -60,14 +62,6 @@ function createBaseTileLayer(offlinePmtilesUrl?: string, basemap: BasemapType = 
   });
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 export interface PreviewPin {
   id: string;
   lat: number;
@@ -109,6 +103,8 @@ type LeafletMapProps = PickerMapProps | OverviewMapProps;
 
 export function LeafletMap(props: LeafletMapProps) {
   const [basemap, setBasemap] = useState<BasemapType>('osm');
+  const [milSymbolReady, setMilSymbolReady] = useState(false);
+  const milSymbolModRef = useRef<MilSymbolModule | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const baseLayerRef = useRef<L.GridLayer | null>(null);
@@ -118,6 +114,14 @@ export function LeafletMap(props: LeafletMapProps) {
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const previewLayerRef = useRef<L.LayerGroup | null>(null);
   const pickerMarkerRef = useRef<L.Marker | null>(null);
+  const overviewMarkersRef = useRef<
+    Map<string, { marker: L.Marker; item: IncidentRecord; color: string }>
+  >(new Map());
+  const prevSelectedIdRef = useRef<string | null>(null);
+  const selectedIdRef = useRef<string | null>(
+    props.mode === 'overview' ? props.selectedId ?? null : null
+  );
+  selectedIdRef.current = props.mode === 'overview' ? props.selectedId ?? null : null;
   const onPickRef = useRef<((lat: number, lng: number) => void) | undefined>(
     props.mode === 'picker' ? props.onPickCoordinate : undefined
   );
@@ -200,6 +204,8 @@ export function LeafletMap(props: LeafletMapProps) {
       previewLayerRef.current = null;
       markerLayerRef.current = null;
       pickerMarkerRef.current = null;
+      overviewMarkersRef.current.clear();
+      prevSelectedIdRef.current = null;
     };
   }, []);
 
@@ -402,7 +408,23 @@ export function LeafletMap(props: LeafletMapProps) {
     props.mode === 'picker' ? props.watchPreviewAreas : null,
   ]);
 
-  // Overview markers sync
+  // Lazy-load milsymbol only when MIL-STD-2525D mode is requested
+  useEffect(() => {
+    if (props.mode !== 'overview' || props.markerStyle !== 'milsymbol' || milSymbolModRef.current) {
+      return;
+    }
+    let active = true;
+    void import('../utils/milSymbols').then((mod) => {
+      if (!active) return;
+      milSymbolModRef.current = mod;
+      setMilSymbolReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [props.mode, props.mode === 'overview' ? props.markerStyle : null]);
+
+  // Overview markers sync (rebuilds markers only when data/style changes, not on selection click)
   useEffect(() => {
     if (props.mode !== 'overview') return;
     const map = mapRef.current;
@@ -410,8 +432,12 @@ export function LeafletMap(props: LeafletMapProps) {
     if (!map || !layer) return;
 
     layer.clearLayers();
+    overviewMarkersRef.current.clear();
+    prevSelectedIdRef.current = null;
+
     const valid = props.incidents.filter((i) => i.lat !== null && i.lng !== null);
     const bounds: [number, number][] = [];
+    const milMod = props.markerStyle === 'milsymbol' ? milSymbolModRef.current : null;
 
     for (const item of valid) {
       const lat = item.lat as number;
@@ -423,15 +449,18 @@ export function LeafletMap(props: LeafletMapProps) {
         props.colorMode === 'severity'
           ? severity.color
           : getCategoryColor(item.category, catIndex >= 0 ? catIndex : 0);
-      const isSelected = props.selectedId === item.id;
+      const isSelected = selectedIdRef.current === item.id;
       const icon =
-        props.markerStyle === 'milsymbol'
+        props.markerStyle === 'milsymbol' && milMod
           ? L.divIcon({
               className: 'custom-milsymbol-icon',
-              ...getMilSymbolIconOptions(item.category, isSelected),
+              ...milMod.getMilSymbolIconOptions(item.category, isSelected),
             })
           : createPinIcon(color, isSelected, item.eventCount);
-      const marker = L.marker([lat, lng], { icon });
+      const marker = L.marker([lat, lng], {
+        icon,
+        title: `${item.category}${item.district ? ` อ.${item.district}` : ''}`,
+      });
 
       const area = [
         item.subdistrict ? `ต.${item.subdistrict}` : '',
@@ -447,7 +476,7 @@ export function LeafletMap(props: LeafletMapProps) {
           : '';
 
       const popupHtml = `
-        <div style="font-family:'Sarabun','Noto Sans Thai',sans-serif;min-width:220px;max-width:290px;line-height:1.45;">
+        <div style="font-family:'Noto Sans Thai','Sarabun',sans-serif;min-width:220px;max-width:290px;line-height:1.45;">
           <div style="font-weight:700;color:${color};margin-bottom:4px;">${escapeHtml(item.category)}</div>
           <div style="display:inline-block;font-size:11px;font-weight:700;color:#ffffff;background:${severity.color};padding:1px 7px;border-radius:999px;margin-bottom:4px;">ความรุนแรง: ${escapeHtml(severity.label)}</div>
           ${countLine}
@@ -467,13 +496,14 @@ export function LeafletMap(props: LeafletMapProps) {
         onSelectRef.current?.(item.id);
       });
       marker.addTo(layer);
+      overviewMarkersRef.current.set(item.id, { marker, item, color });
       if (isSelected) {
+        prevSelectedIdRef.current = item.id;
         marker.openPopup();
-        map.setView([lat, lng], Math.max(map.getZoom(), 12), { animate: true });
       }
     }
 
-    if (bounds.length > 0 && !props.selectedId) {
+    if (bounds.length > 0 && !selectedIdRef.current) {
       map.fitBounds(bounds, { padding: [32, 32], maxZoom: 12 });
     } else if (bounds.length === 0) {
       map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
@@ -482,9 +512,51 @@ export function LeafletMap(props: LeafletMapProps) {
     props.mode,
     props.mode === 'overview' ? props.incidents : null,
     props.mode === 'overview' ? props.categories : null,
-    props.mode === 'overview' ? props.selectedId : null,
     props.mode === 'overview' ? props.markerStyle : null,
     props.mode === 'overview' ? props.colorMode : null,
+    milSymbolReady,
+  ]);
+
+  // Update only the previously/newly selected marker icon & view without rebuilding all markers
+  useEffect(() => {
+    if (props.mode !== 'overview') return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    const buildMarkerIcon = (item: IncidentRecord, color: string, selected: boolean) => {
+      const milMod = props.markerStyle === 'milsymbol' ? milSymbolModRef.current : null;
+      return props.markerStyle === 'milsymbol' && milMod
+        ? L.divIcon({
+            className: 'custom-milsymbol-icon',
+            ...milMod.getMilSymbolIconOptions(item.category, selected),
+          })
+        : createPinIcon(color, selected, item.eventCount);
+    };
+
+    const prevId = prevSelectedIdRef.current;
+    if (prevId && prevId !== props.selectedId) {
+      const prevEntry = overviewMarkersRef.current.get(prevId);
+      if (prevEntry) {
+        prevEntry.marker.setIcon(buildMarkerIcon(prevEntry.item, prevEntry.color, false));
+      }
+    }
+
+    const nextId = props.selectedId ?? null;
+    if (nextId) {
+      const nextEntry = overviewMarkersRef.current.get(nextId);
+      if (nextEntry) {
+        nextEntry.marker.setIcon(buildMarkerIcon(nextEntry.item, nextEntry.color, true));
+        nextEntry.marker.openPopup();
+        const ll = nextEntry.marker.getLatLng();
+        map.setView([ll.lat, ll.lng], Math.max(map.getZoom(), 12), { animate: true });
+      }
+    }
+    prevSelectedIdRef.current = nextId;
+  }, [
+    props.mode,
+    props.mode === 'overview' ? props.selectedId : null,
+    props.mode === 'overview' ? props.markerStyle : null,
+    milSymbolReady,
   ]);
 
   const isOfflineBasemap = Boolean((props.offlinePmtilesUrl || '').trim());

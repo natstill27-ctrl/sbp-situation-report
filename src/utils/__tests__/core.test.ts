@@ -327,11 +327,11 @@ describe('Tactical Keywords, Quick Config Share & KML Export', () => {
     );
   });
 
-  it('round-trips HTTPS config share hash and rejects unsafe URLs', () => {
+  it('round-trips GAS Web App config share hash and rejects unsafe or non-GAS URLs', () => {
     const sampleUrl = encodeConfigHash(
       {
         ...DEFAULT_SETTINGS,
-        gasWebhookUrl: 'https://example.com/macros/s/DEMO/exec',
+        gasWebhookUrl: 'https://script.google.com/macros/s/DEMO/exec',
         agencyName: 'ศูนย์ข่าวทดสอบ',
         autoPullOnLoad: false,
       },
@@ -341,7 +341,7 @@ describe('Tactical Keywords, Quick Config Share & KML Export', () => {
 
     const decoded = decodeConfigHash(new URL(sampleUrl).hash);
     expect(decoded).not.toBeNull();
-    expect(decoded?.gasWebhookUrl).toBe('https://example.com/macros/s/DEMO/exec');
+    expect(decoded?.gasWebhookUrl).toBe('https://script.google.com/macros/s/DEMO/exec');
     expect(decoded?.agencyName).toBe('ศูนย์ข่าวทดสอบ');
     expect(decoded?.autoPullOnLoad).toBe(false);
 
@@ -350,6 +350,14 @@ describe('Tactical Keywords, Quick Config Share & KML Export', () => {
       .replace(/\//g, '_')
       .replace(/=+$/, '');
     expect(decodeConfigHash(`#config=${badPayload}`)).toBeNull();
+
+    const nonGasPayload = btoa(
+      JSON.stringify({ w: 'https://evil.example.com/macros/s/DEMO/exec' })
+    )
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+    expect(decodeConfigHash(`#config=${nonGasPayload}`)).toBeNull();
   });
 
   it('builds valid XML-escaped Google Earth KML for mapped incidents', () => {

@@ -6,6 +6,7 @@ import type {
   WatchAreaTarget,
 } from '../types/incident';
 import { buildParsedCoordinate, parseCoordinateInput } from './coordinates';
+import { fetchWithTimeout } from './fetchTimeout';
 import { getCenterOfArea, lookupAreaByLatLng, matchAreaByThaiNames } from './geoLookup';
 import {
   classifyCategoryFromText,
@@ -647,7 +648,7 @@ async function postGasPayload(
   payload: Record<string, unknown>
 ): Promise<GasSyncResult> {
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain;charset=utf-8',
@@ -740,7 +741,7 @@ export async function pullIncidentsFromGas(settings: AppSettings): Promise<GasPu
 
   const url = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}page=json&scope=sbp`;
   try {
-    const response = await fetch(url, { method: 'GET' });
+    const response = await fetchWithTimeout(url, { method: 'GET' });
     const text = await response.text();
 
     if (!response.ok) {
@@ -816,7 +817,7 @@ export async function testGasConnection(settings: AppSettings): Promise<GasSyncR
   }
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'ping', source: 'SBP-Standalone-Report' }),
