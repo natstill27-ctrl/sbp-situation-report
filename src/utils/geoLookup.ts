@@ -17,7 +17,7 @@ export interface BoundaryEntry {
 
 const BOUNDARIES = rawBoundaries as BoundaryEntry[];
 
-const PROVINCE_ORDER = ['ปัตตานี', 'ยะลา', 'นราธิวาส', 'สงขลา'];
+const PROVINCE_ORDER = ['สงขลา', 'พัทลุง', 'ตรัง', 'สตูล', 'ปัตตานี', 'ยะลา', 'นราธิวาส'];
 
 function pointInRing(lng: number, lat: number, ring: number[][]): boolean {
   let inside = false;
@@ -54,8 +54,8 @@ function pointInGeometry(lng: number, lat: number, geom: BoundaryGeometry): bool
 }
 
 /**
- * Look up Province / District / Subdistrict offline across the 3 Southern Border Provinces
- * + 4 Songkhla security districts (290 subdistricts total).
+ * Look up Province / District / Subdistrict offline across the 7 lower-southern provinces
+ * (Trang, Phatthalung, Satun, Songkhla, Pattani, Yala, Narathiwat).
  */
 export function lookupAreaByLatLng(lat: number, lng: number): AreaMatch {
   // 1. Exact point-in-polygon match via bounding-box prefilter
@@ -211,6 +211,12 @@ export function matchAreaByThaiNames(
     ยล: 'ยะลา',
     'สข.': 'สงขลา',
     สข: 'สงขลา',
+    'พท.': 'พัทลุง',
+    พท: 'พัทลุง',
+    'ตง.': 'ตรัง',
+    ตง: 'ตรัง',
+    'สต.': 'สตูล',
+    สต: 'สตูล',
   };
   const p = provMap[rawProv] || rawProv;
   const rawDist = normalizeAreaToken(districtHint);

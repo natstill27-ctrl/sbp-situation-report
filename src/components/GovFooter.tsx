@@ -15,7 +15,7 @@ export function GovFooter({ settings }: GovFooterProps) {
           <p className="footer-title">{settings.systemTitle}</p>
           <p className="footer-sub">{settings.agencyName}</p>
           <p className="footer-note">
-            ครอบคลุมฐานข้อมูลขอบเขตพื้นที่ 3 จังหวัดชายแดนภาคใต้ และ 4 อำเภอ จ.สงขลา ({districts} อำเภอ /{' '}
+            ครอบคลุมฐานข้อมูลขอบเขตพื้นที่ 7 จังหวัดภาคใต้ตอนล่าง ตรัง พัทลุง สตูล สงขลา ปัตตานี ยะลา นราธิวาส ({districts} อำเภอ /{' '}
             {subdistricts} ตำบล) • จัดเก็บสำรองในเครื่องด้วย IndexedDB และเชื่อมต่อ Google Apps Script
           </p>
         </div>

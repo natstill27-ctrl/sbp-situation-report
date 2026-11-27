@@ -4,6 +4,7 @@ import { GovHeader, type ActiveTab } from './components/GovHeader';
 import { IncidentFormPage } from './components/IncidentFormPage';
 import { DEFAULT_SETTINGS, buildSampleIncidents } from './data/defaults';
 import type { AppSettings, IncidentRecord, WatchAlertRecord } from './types/incident';
+import type { NewsToIncidentDraft } from './types/news';
 import { decodeConfigHash } from './utils/configShare';
 import {
   pullIncidentsFromGas,
@@ -25,6 +26,9 @@ import {
   saveWatchAlertsBatch,
 } from './utils/storage';
 
+const NewsHubPage = lazy(() =>
+  import('./components/NewsHubPage').then((m) => ({ default: m.NewsHubPage }))
+);
 const IpbDashboardPage = lazy(() =>
   import('./components/IpbDashboardPage').then((m) => ({ default: m.IpbDashboardPage }))
 );
@@ -42,13 +46,14 @@ function formatClockHHmm(date: Date): string {
 }
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('entry');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('news-hub');
   const [incidents, setIncidents] = useState<IncidentRecord[]>([]);
   const [watchAlerts, setWatchAlerts] = useState<WatchAlertRecord[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
 
   const [editingIncident, setEditingIncident] = useState<IncidentRecord | null>(null);
+  const [newsDraft, setNewsDraft] = useState<NewsToIncidentDraft | null>(null);
   const [lastSavedRecord, setLastSavedRecord] = useState<IncidentRecord | null>(null);
   const [lastPulledAt, setLastPulledAt] = useState<string | null>(null);
   const [startupNotice, setStartupNotice] = useState<string>('');
@@ -452,12 +457,25 @@ export function App() {
                 </div>
               }
             >
+              {activeTab === 'news-hub' && (
+                <NewsHubPage
+                  settings={settings}
+                  onImportToIncident={(draft) => {
+                    setEditingIncident(null);
+                    setNewsDraft(draft);
+                    setActiveTab('entry');
+                  }}
+                />
+              )}
+
               {activeTab === 'entry' && (
                 <IncidentFormPage
                   settings={settings}
                   incidents={incidents}
                   editingIncident={editingIncident}
                   onCancelEdit={() => setEditingIncident(null)}
+                  newsDraft={newsDraft}
+                  onClearNewsDraft={() => setNewsDraft(null)}
                   onSaveIncident={handleSaveIncident}
                   onSaveIncidentBatch={handleSaveIncidentBatch}
                   lastSavedRecord={lastSavedRecord}

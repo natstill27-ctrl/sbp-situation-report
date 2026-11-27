@@ -15,9 +15,9 @@ export const DEFAULT_CATEGORIES: string[] = [
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  systemTitle: 'ระบบรายงานสถานการณ์ 3 จังหวัดชายแดนภาคใต้',
-  agencyName: 'ศูนย์ข้อมูลสถานการณ์และสถิติเพื่อการวิเคราะห์ IPB (Standalone)',
-  agencySubtitle: 'พื้นที่รับผิดชอบ 3 จังหวัดชายแดนภาคใต้ และ 4 อำเภอ จังหวัดสงขลา',
+  systemTitle: 'ศูนย์บริการด้านการข่าวกรอง ผขว.บก.บน.56',
+  agencyName: 'แผนกข่าวกรอง กองบังคับการ กองบิน 56',
+  agencySubtitle: 'พื้นที่รับผิดชอบ 7 จังหวัดภาคใต้ตอนล่าง (ตรัง พัทลุง สตูล สงขลา ปัตตานี ยะลา นราธิวาส)',
   gasWebhookUrl: '',
   gasFetchUrl: '',
   autoSyncOnSave: true,

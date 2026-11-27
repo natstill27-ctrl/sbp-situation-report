@@ -56,7 +56,7 @@ export function buildIncidentsCsv(incidents: IncidentRecord[]): string {
     r.province || '-',
     r.district || '-',
     r.subdistrict || '-',
-    r.inTargetArea ? 'ในพื้นที่ 3 จว.+4 อ.สงขลา' : 'นอกเขตพื้นที่หลัก',
+    r.inTargetArea ? 'ในพื้นที่ 7 จังหวัดภาคใต้ตอนล่าง' : 'นอกเขตพื้นที่หลัก',
     r.lat ?? '',
     r.lng ?? '',
     r.mgrs,

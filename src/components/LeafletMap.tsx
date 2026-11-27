@@ -11,8 +11,8 @@ import { getDistrictBoundariesGeoJson, getWatchZonePolygonsGeoJson } from '../ut
 
 export type BasemapType = 'osm' | 'satellite' | 'topo';
 
-const DEFAULT_CENTER: [number, number] = [6.48, 101.42];
-const DEFAULT_ZOOM = 9;
+const DEFAULT_CENTER: [number, number] = [6.82, 100.62];
+const DEFAULT_ZOOM = 8;
 
 function createPinIcon(color: string, large = false, badgeCount?: number): L.DivIcon {
   const size = large ? 34 : 26;
@@ -516,7 +516,7 @@ export function LeafletMap(props: LeafletMapProps) {
         ref={containerRef}
         className="leaflet-map-box"
         style={{ height: props.height || '380px', width: '100%' }}
-        aria-label="แผนที่แสดงพิกัดและพื้นที่ปฏิบัติการ 3 จังหวัดชายแดนภาคใต้"
+        aria-label="แผนที่แสดงพิกัดและพื้นที่ปฏิบัติการ 7 จังหวัดภาคใต้ตอนล่าง (ผขว.บก.บน.56)"
       />
     </div>
   );

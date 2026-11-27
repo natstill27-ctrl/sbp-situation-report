@@ -511,8 +511,9 @@ export function SettingsPage({ settings, onSaveSettings, onPullFromGas }: Settin
               โค้ด Google Apps Script ฝั่งเชื่อมต่อ (SbpBridge.gs) พร้อมใช้งาน
             </h3>
             <p className="card-subtitle">
-              สร้างไฟล์สคริปต์ชื่อ <code>SbpBridge.gs</code> ในโปรเจกต์ GAS เดิม แล้วเพิ่ม 3 บรรทัด{' '}
-              <code>if (page == &quot;json&quot;) return exportSbpJson(e);</code> ใน <code>doGet(e)</code> เดิม จากนั้น Deploy เป็นเวอร์ชันใหม่
+              สร้างไฟล์สคริปต์ชื่อ <code>SbpBridge.gs</code> ในโปรเจกต์ GAS เดิม แล้วเพิ่มเงื่อนไข{' '}
+              <code>if (page == &quot;json&quot;) return exportSbpJson(e);</code> และ{' '}
+              <code>if (page == &quot;news&quot;) return exportWing56NewsJson(e);</code> ใน <code>doGet(e)</code> เดิม จากนั้น Deploy เป็นเวอร์ชันใหม่
             </p>
           </div>
           <button type="button" className="btn btn-outline" onClick={handleCopyCode}>

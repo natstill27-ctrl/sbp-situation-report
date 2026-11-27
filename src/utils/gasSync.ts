@@ -889,12 +889,15 @@ export function generateGasReceiverCode(settings: AppSettings): string {
     .join(',\n');
 
   return `/**
- * SbpBridge.gs — โค้ดเชื่อมต่อระบบรายงานสถานการณ์ 3 จังหวัดชายแดนภาคใต้ (Dual-Write + ดึงข้อมูลย้อนหลัง)
+ * SbpBridge.gs — โค้ดเชื่อมต่อระบบศูนย์บริการด้านการข่าวกรอง ผขว.บก.บน.56 (Dual-Write + ดึงข้อมูลย้อนหลัง + ข่าวรายวัน)
  * วิธีติดตั้งในโปรเจกต์ Google Apps Script เดิม:
  * 1) สร้างไฟล์สคริปต์ใหม่ชื่อ SbpBridge แล้ววางโค้ดนี้ลงไปทั้งหมด
- * 2) เพิ่ม 3 บรรทัดนี้ในฟังก์ชัน doGet(e) ของไฟล์หลักเดิม:
+ * 2) เพิ่มเงื่อนไขนี้ในฟังก์ชัน doGet(e) ของไฟล์หลักเดิม:
  *      if (page == "json") {
  *        return exportSbpJson(e);
+ *      }
+ *      if (page == "news") {
+ *        return exportWing56NewsJson(e);
  *      }
  * 3) (ทางเลือก) ใน exportKML() สามารถเพิ่ม:
  *      if (type == ${JSON.stringify(legacyIncidentType)}) style = "suspicious_object";
@@ -1272,6 +1275,99 @@ function exportSbpJson(e) {
       watchRows: watchRows,
       generatedAt: new Date().toISOString()
     });
+  } catch (err) {
+    return sbpJsonResponse_({ ok: false, error: err.message });
+  }
+}
+
+function decodeNewsEntities_(str) {
+  return String(str || '')
+    .replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, '$1')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function stripNewsTrailingSource_(title, sourceName) {
+  if (!sourceName) return title;
+  var suffix = ' - ' + sourceName;
+  if (title.slice(-suffix.length) === suffix) {
+    return title.slice(0, title.length - suffix.length).trim();
+  }
+  return title;
+}
+
+function exportWing56NewsJson(e) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var cached = cache.get('wing56_news_v1');
+    if (cached && !(e && e.parameter && e.parameter.nocache === '1')) {
+      return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var queries = [
+      { cat: 'politics', q: '(การเมือง OR ผู้ว่า OR เลือกตั้ง OR กกต OR อบจ OR เทศบาล OR ครม OR รัฐมนตรี) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:3d' },
+      { cat: 'economy', q: '(เศรษฐกิจ OR การค้าชายแดน OR ยางพารา OR ปาล์มน้ำมัน OR ท่องเที่ยว OR ลงทุน OR ศุลกากร OR ด่านสะเดา OR สนามบินหาดใหญ่) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:3d' },
+      { cat: 'social', q: '(น้ำท่วม OR อุทกภัย OR สาธารณสุข OR การศึกษา OR ประชาคม OR ชุมชน OR แรงงานต่างด้าว) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:3d' },
+      { cat: 'narcotics', q: '(ยาเสพติด OR ยาบ้า OR ไอซ์ OR ป.ป.ส. OR กัญชา OR กระท่อม OR เครือข่ายยาเสพติด) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:3d' },
+      { cat: 'security', q: '(ความมั่นคง OR กอ.รมน. OR ระเบิด OR ลอบยิง OR ปะทะ OR ก่อเหตุรุนแรง OR ฝ่ายความมั่นคง OR EOD OR ปิดล้อม) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:3d' }
+    ];
+
+    var rawItems = [];
+    for (var i = 0; i < queries.length; i++) {
+      var qObj = queries[i];
+      var url = 'https://news.google.com/rss/search?q=' + encodeURIComponent(qObj.q) + '&hl=th&gl=TH&ceid=TH:th';
+      try {
+        var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        if (res.getResponseCode() !== 200) continue;
+        var xml = res.getContentText();
+        var itemRegex = /<item>([\\s\\S]*?)<\\/item>/g;
+        var m;
+        while ((m = itemRegex.exec(xml)) !== null) {
+          var block = m[1];
+          var srcMatch = block.match(/<source[^>]*>([\\s\\S]*?)<\\/source>/i);
+          var titleMatch = block.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i);
+          var linkMatch = block.match(/<link[^>]*>([\\s\\S]*?)<\\/link>/i);
+          var pubMatch = block.match(/<pubDate[^>]*>([\\s\\S]*?)<\\/pubDate>/i);
+          var descMatch = block.match(/<description[^>]*>([\\s\\S]*?)<\\/description>/i);
+
+          var sourceName = srcMatch ? decodeNewsEntities_(srcMatch[1]) : '';
+          var rawTitle = titleMatch ? decodeNewsEntities_(titleMatch[1]) : '';
+          var title = stripNewsTrailingSource_(rawTitle, sourceName);
+          var summary = descMatch ? stripNewsTrailingSource_(decodeNewsEntities_(descMatch[1]), sourceName) : title;
+          var link = linkMatch ? decodeNewsEntities_(linkMatch[1]) : '';
+          var publishedAt = pubMatch ? new Date(decodeNewsEntities_(pubMatch[1])).toISOString() : new Date().toISOString();
+
+          if (title && sourceName) {
+            rawItems.push({
+              title: title,
+              summary: summary || title,
+              link: link,
+              sourceName: sourceName,
+              publishedAt: publishedAt,
+              queryHintCategory: qObj.cat
+            });
+          }
+        }
+      } catch (_fetchErr) {}
+    }
+
+    var out = JSON.stringify({
+      ok: true,
+      generatedAt: new Date().toISOString(),
+      windowHours: 72,
+      rawItems: rawItems
+    });
+    if (out.length < 95000) {
+      cache.put('wing56_news_v1', out, 900);
+    }
+    return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return sbpJsonResponse_({ ok: false, error: err.message });
   }

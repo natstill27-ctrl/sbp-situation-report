@@ -124,7 +124,36 @@ describe('Offline Southern Border Area Lookup', () => {
     expect(sk.district).toBe('เทพา');
   });
 
-  it('flags coordinates outside the 3 provinces + 4 Songkhla districts', () => {
+  it('identifies expanded Wing 56 AOR provinces (Trang, Phatthalung, Satun, Hat Yai / Khlong Hoi Khong)', () => {
+    const hatYai = lookupAreaByLatLng(7.0086, 100.4747);
+    expect(hatYai.inTargetArea).toBe(true);
+    expect(hatYai.province).toBe('สงขลา');
+    expect(hatYai.district).toBe('หาดใหญ่');
+
+    const khk = lookupAreaByLatLng(6.9333, 100.3917);
+    expect(khk.inTargetArea).toBe(true);
+    expect(khk.province).toBe('สงขลา');
+    expect(khk.district).toBe('คลองหอยโข่ง');
+
+    const pt = lookupAreaByLatLng(7.6167, 100.074);
+    expect(pt.inTargetArea).toBe(true);
+    expect(pt.province).toBe('พัทลุง');
+
+    const tr = lookupAreaByLatLng(7.5563, 99.6114);
+    expect(tr.inTargetArea).toBe(true);
+    expect(tr.province).toBe('ตรัง');
+
+    const st = lookupAreaByLatLng(6.6238, 100.0674);
+    expect(st.inTargetArea).toBe(true);
+    expect(st.province).toBe('สตูล');
+
+    expect(matchAreaByThaiNames('พท.')?.province).toBe('พัทลุง');
+    expect(matchAreaByThaiNames('ตง.')?.province).toBe('ตรัง');
+    expect(matchAreaByThaiNames('สต.')?.province).toBe('สตูล');
+    expect(matchAreaByThaiNames('พท.')?.district).toBe('');
+  });
+
+  it('flags coordinates outside the 7 lower-southern provinces', () => {
     const bkk = lookupAreaByLatLng(13.7563, 100.5018);
     expect(bkk.inTargetArea).toBe(false);
   });
@@ -1349,6 +1378,7 @@ describe('Single-Line Sanitization for Power BI / CSV / GAS Compatibility', () =
     expect(bridge).toContain('function sanitizeExistingSheetLineBreaks()');
     expect(bridge).toContain("data.action === 'sanitizeLineBreaks'");
     expect(bridge).toContain('LockService.getScriptLock()');
+    expect(bridge).toContain('function exportWing56NewsJson(e)');
     expect(bridge).toContain('sanitizeSheetCols_(legacySheet, 2, 3)');
     expect(bridge).toContain('/[\\r\\n\\u2028\\u2029\\v]+/g');
     expect(bridge).toContain('sanitizeSbpCell_(data["details"]');

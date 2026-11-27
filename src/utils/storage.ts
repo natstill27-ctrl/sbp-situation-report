@@ -239,6 +239,38 @@ export async function deleteWatchAlert(id: string): Promise<void> {
   }
 }
 
+const LEGACY_SYSTEM_TITLES = new Set(['ระบบรายงานสถานการณ์ 3 จังหวัดชายแดนภาคใต้']);
+const LEGACY_AGENCY_NAMES = new Set([
+  'ศูนย์ข้อมูลสถานการณ์และสถิติเพื่อการวิเคราะห์ IPB (Standalone)',
+]);
+const LEGACY_AGENCY_SUBTITLES = new Set([
+  'พื้นที่รับผิดชอบ 3 จังหวัดชายแดนภาคใต้ และ 4 อำเภอ จังหวัดสงขลา',
+]);
+
+function migrateSavedSettings(parsed: Partial<AppSettings>): AppSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...parsed,
+    systemTitle:
+      !parsed.systemTitle || LEGACY_SYSTEM_TITLES.has(parsed.systemTitle)
+        ? DEFAULT_SETTINGS.systemTitle
+        : parsed.systemTitle,
+    agencyName:
+      !parsed.agencyName || LEGACY_AGENCY_NAMES.has(parsed.agencyName)
+        ? DEFAULT_SETTINGS.agencyName
+        : parsed.agencyName,
+    agencySubtitle:
+      !parsed.agencySubtitle || LEGACY_AGENCY_SUBTITLES.has(parsed.agencySubtitle)
+        ? DEFAULT_SETTINGS.agencySubtitle
+        : parsed.agencySubtitle,
+    fieldMapping: {
+      ...DEFAULT_SETTINGS.fieldMapping,
+      ...(parsed.fieldMapping || {}),
+    },
+    categories: ensureBuiltinCategories(parsed.categories),
+  };
+}
+
 export async function loadSettings(): Promise<AppSettings> {
   try {
     const db = await openDb();
@@ -249,29 +281,13 @@ export async function loadSettings(): Promise<AppSettings> {
       req.onerror = () => reject(req.error);
     });
     if (!saved) return DEFAULT_SETTINGS;
-    return {
-      ...DEFAULT_SETTINGS,
-      ...saved,
-      fieldMapping: {
-        ...DEFAULT_SETTINGS.fieldMapping,
-        ...(saved.fieldMapping || {}),
-      },
-      categories: ensureBuiltinCategories(saved.categories),
-    };
+    return migrateSavedSettings(saved);
   } catch {
     try {
       const raw = localStorage.getItem(LS_SETTINGS_KEY);
       if (!raw) return DEFAULT_SETTINGS;
       const parsed = JSON.parse(raw) as Partial<AppSettings>;
-      return {
-        ...DEFAULT_SETTINGS,
-        ...parsed,
-        fieldMapping: {
-          ...DEFAULT_SETTINGS.fieldMapping,
-          ...(parsed.fieldMapping || {}),
-        },
-        categories: ensureBuiltinCategories(parsed.categories),
-      };
+      return migrateSavedSettings(parsed);
     } catch {
       return DEFAULT_SETTINGS;
     }

@@ -355,7 +355,7 @@ export function MapAndListPage({
               disabled={pulling || !hasGasUrl}
               title={
                 hasGasUrl
-                  ? 'ดึงข้อมูลสถานการณ์ 3 จชต. ย้อนหลังจาก Google Apps Script (?page=json)'
+                  ? 'ดึงข้อมูลสถานการณ์ย้อนหลังจาก Google Apps Script (?page=json)'
                   : 'กรุณาตั้งค่า Webhook URL ในหน้าตั้งค่าก่อน'
               }
             >
@@ -461,7 +461,7 @@ export function MapAndListPage({
               <option value="">ทุกจังหวัด</option>
               {provinces.map((p) => (
                 <option key={p} value={p}>
-                  {p === 'สงขลา' ? 'สงขลา (4 อำเภอ)' : p}
+                  {p}
                 </option>
               ))}
             </select>
@@ -904,7 +904,7 @@ export function MapAndListPage({
                                     <option value="">-- จังหวัด --</option>
                                     {provinces.map((p) => (
                                       <option key={p} value={p}>
-                                        {p === 'สงขลา' ? 'สงขลา (4 อำเภอ)' : p}
+                                        {p}
                                       </option>
                                     ))}
                                   </select>

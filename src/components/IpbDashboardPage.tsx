@@ -722,10 +722,10 @@ export function IpbDashboardPage({
                 value={provinceFilter}
                 onChange={(e) => setProvinceFilter(e.target.value)}
               >
-                <option value="">ทุกจังหวัด (3 จว. + 4 อ.สงขลา)</option>
+                <option value="">ทุกจังหวัด (7 จว. ภาคใต้ตอนล่าง)</option>
                 {provinces.map((p) => (
                   <option key={p} value={p}>
-                    {p === 'สงขลา' ? 'สงขลา (4 อำเภอ)' : p}
+                    {p}
                   </option>
                 ))}
               </select>

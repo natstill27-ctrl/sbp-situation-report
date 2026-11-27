@@ -138,10 +138,13 @@ export interface AreaSeverityRow {
  */
 export function buildAreaSeverityStats(incidents: IncidentRecord[]): AreaSeverityRow[] {
   const AREA_LABELS: Record<string, string> = {
+    สงขลา: 'จว.สงขลา',
+    พัทลุง: 'จว.พัทลุง',
+    ตรัง: 'จว.ตรัง',
+    สตูล: 'จว.สตูล',
     นราธิวาส: 'จว.นราธิวาส',
     ปัตตานี: 'จว.ปัตตานี',
     ยะลา: 'จว.ยะลา',
-    สงขลา: '4 อ. จว.สงขลา',
     อื่นๆ: 'นอกเขต/อื่นๆ',
   };
 

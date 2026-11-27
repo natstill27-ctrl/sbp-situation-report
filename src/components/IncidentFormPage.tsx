@@ -28,6 +28,7 @@ import type {
   WatchAreaTarget,
   WatchAuditResult,
 } from '../types/incident';
+import type { NewsToIncidentDraft } from '../types/news';
 import { buildParsedCoordinate, parseCoordinateInput } from '../utils/coordinates';
 import type { GasPullResult } from '../utils/gasSync';
 import {
@@ -58,6 +59,8 @@ interface IncidentFormPageProps {
   incidents?: IncidentRecord[];
   editingIncident: IncidentRecord | null;
   onCancelEdit: () => void;
+  newsDraft?: NewsToIncidentDraft | null;
+  onClearNewsDraft?: () => void;
   onSaveIncident: (record: IncidentRecord) => Promise<IncidentRecord>;
   onSaveIncidentBatch?: (records: IncidentRecord[]) => Promise<IncidentRecord[]>;
   lastSavedRecord: IncidentRecord | null;
@@ -83,6 +86,8 @@ export function IncidentFormPage({
   incidents = [],
   editingIncident,
   onCancelEdit,
+  newsDraft,
+  onClearNewsDraft,
   onSaveIncident,
   onSaveIncidentBatch,
   lastSavedRecord,
@@ -207,6 +212,51 @@ export function IncidentFormPage({
     }
   }, [editingIncident]);
 
+  // Prefill from News HUB 1-click import when not editing an existing incident
+  useEffect(() => {
+    if (!newsDraft || editingIncident) return;
+    setEntryMode('single');
+    setMultiOffer(null);
+    setCoordinateRaw('');
+    setParsedCoord(null);
+    setCoordError('');
+    setFormError('');
+
+    const bkkDate = new Date(new Date(newsDraft.publishedAt).getTime() + 7 * 60 * 60 * 1000);
+    if (!Number.isNaN(bkkDate.getTime())) {
+      setOccurredAt(bkkDate.toISOString().slice(0, 16));
+    }
+    setCategory(newsDraft.mappedIncidentCategory || settings.categories[0] || 'อื่นๆ');
+
+    const provMatch = newsDraft.province
+      ? matchAreaByThaiNames(newsDraft.province, newsDraft.district || undefined)
+      : null;
+    if (provMatch) {
+      setProvince(provMatch.province);
+      setDistrict(provMatch.district);
+      setSubdistrict('');
+      setInTargetArea(provMatch.inTargetArea);
+      setAreaAutoNote(
+        provMatch.district
+          ? `ดึงพื้นที่จากข่าว: อ.${provMatch.district} จว.${provMatch.province} (สามารถเลือกตำบลหรือปักหมุดเพิ่มเติมได้)`
+          : `ดึงพื้นที่จากข่าว: จว.${provMatch.province} (สามารถเลือกอำเภอ/ตำบลหรือปักหมุดเพิ่มเติมได้)`
+      );
+    } else {
+      setProvince('');
+      setDistrict('');
+      setSubdistrict('');
+      setInTargetArea(true);
+      setAreaAutoNote('');
+    }
+
+    const summaryPart =
+      newsDraft.summary && newsDraft.summary !== newsDraft.title ? ` — ${newsDraft.summary}` : '';
+    const linkPart = newsDraft.link ? ` (${newsDraft.link})` : '';
+    setDetails(
+      `[${newsDraft.sourceName}] ${newsDraft.title}${summaryPart}${linkPart}`
+    );
+  }, [newsDraft, editingIncident, settings.categories]);
+
   const applyCoordinateResult = (coord: ParsedCoordinate) => {
     setParsedCoord(coord);
     setCoordError('');
@@ -223,7 +273,7 @@ export function IncidentFormPage({
     } else {
       setInTargetArea(false);
       setAreaAutoNote(
-        'พิกัดอยู่นอกเขต 3 จังหวัดชายแดนภาคใต้ + 4 อำเภอ จ.สงขลา (ยังสามารถระบุพื้นที่และบันทึกได้)'
+        'พิกัดอยู่นอกเขตพื้นที่รับผิดชอบ 7 จังหวัดภาคใต้ตอนล่าง (ยังสามารถระบุพื้นที่และบันทึกได้)'
       );
     }
   };
@@ -1197,6 +1247,19 @@ export function IncidentFormPage({
         )}
       </div>
 
+      {newsDraft && !editingIncident && (
+        <div className="inline-alert info" style={{ justifyContent: 'space-between', marginBottom: '0.85rem' }} role="status">
+          <span>
+            นำเข้าข้อมูลข่าวจาก <strong>{newsDraft.sourceName}</strong> เรียบร้อย — ตรวจสอบพื้นที่/ปักหมุดเพิ่มเติมแล้วกดบันทึกได้ทันที
+          </span>
+          {onClearNewsDraft && (
+            <button type="button" className="btn-xs btn-outline" onClick={onClearNewsDraft}>
+              ปิดแถบ
+            </button>
+          )}
+        </div>
+      )}
+
       {!editingIncident && (
         <div className="entry-mode-tabs" role="tablist" aria-label="รูปแบบการบันทึกเหตุการณ์">
           <button
@@ -1341,7 +1404,7 @@ export function IncidentFormPage({
                     <option value="">-- เลือกจังหวัด --</option>
                     {provinces.map((p) => (
                       <option key={p} value={p}>
-                        {p === 'สงขลา' ? 'สงขลา (4 อำเภอ)' : p}
+                        {p}
                       </option>
                     ))}
                     {province && !provinces.includes(province) && (
@@ -2155,7 +2218,7 @@ export function IncidentFormPage({
                   >
                     {provinces.map((p) => (
                       <option key={p} value={p}>
-                        {p === 'สงขลา' ? 'สงขลา (4 อำเภอ)' : p}
+                        {p}
                       </option>
                     ))}
                   </select>

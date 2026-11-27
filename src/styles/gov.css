@@ -2346,3 +2346,329 @@ html.high-contrast .quick-edit-box {
     border-color: #b91c1c !important;
   }
 }
+
+/* Wing 56 Daily Intelligence News HUB */
+.news-hub-hero {
+  margin-bottom: 1rem;
+  border-top: 4px solid var(--gov-navy-800);
+}
+
+.news-hub-hero-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.news-editorial-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--gov-navy-800);
+  background: var(--info-bg);
+  border: 1px solid var(--border-color);
+}
+
+.news-hub-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.news-updated-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+}
+
+.news-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.news-kpi-card {
+  text-align: left;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-left: 4px solid var(--cat-color);
+  border-radius: 8px;
+  padding: 0.75rem 0.85rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+  color: var(--text-main);
+}
+
+.news-kpi-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.news-kpi-card.active {
+  background: var(--cat-bg);
+  border-color: var(--cat-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.news-kpi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.news-kpi-label {
+  font-weight: 700;
+  font-size: 0.94rem;
+  color: var(--text-main);
+}
+
+.news-kpi-count {
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--cat-color);
+}
+
+.news-kpi-desc {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.news-filter-bar {
+  margin-bottom: 1rem;
+}
+
+.news-cat-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.85rem;
+}
+
+.news-cat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-subtle);
+  color: var(--text-main);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.news-cat-pill.active {
+  background: var(--gov-navy-800);
+  color: #ffffff;
+  border-color: var(--gov-navy-800);
+}
+
+.news-pill-count {
+  font-size: 0.78rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.news-cat-pill.active .news-pill-count {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.news-filter-controls {
+  display: grid;
+  grid-template-columns: 2fr repeat(3, minmax(160px, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.news-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.news-item-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 1rem 1.1rem;
+}
+
+.news-card-meta-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.news-cat-badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.news-age-text {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.news-card-title {
+  margin: 0;
+  font-size: 1.03rem;
+  font-weight: 700;
+  line-height: 1.42;
+  color: var(--text-main);
+}
+
+.news-card-summary {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.news-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.news-prov-chip,
+.news-dist-chip {
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 0.14rem 0.5rem;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  color: var(--text-main);
+}
+
+.news-tier-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.14rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+}
+
+.news-tier-badge.tier-official-public {
+  background: var(--info-bg);
+  color: var(--info);
+}
+
+.news-tier-badge.tier-mainstream-credible {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.news-tier-badge.tier-local-neutral {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.news-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-light);
+  flex-wrap: wrap;
+}
+
+.news-transparency-card {
+  margin-top: 1rem;
+  padding: 0.8rem 1rem;
+}
+
+.news-transparency-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.news-transparency-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.news-transparency-body {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.news-sources-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.news-sources-grid h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.88rem;
+  color: var(--gov-navy-800);
+}
+
+.news-sources-grid p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+@media (max-width: 1024px) {
+  .news-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .news-filter-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .news-kpi-grid,
+  .news-cards-grid,
+  .news-filter-controls,
+  .news-sources-grid {
+    grid-template-columns: 1fr;
+  }
+}

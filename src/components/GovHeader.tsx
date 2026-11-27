@@ -1,8 +1,8 @@
-import { BarChart3, ClipboardList, FilePlus2, Settings, ShieldAlert } from 'lucide-react';
+import { BarChart3, ClipboardList, FilePlus2, Newspaper, Settings, ShieldAlert } from 'lucide-react';
 import type { AppSettings } from '../types/incident';
 import { formatThaiDateTime } from '../utils/thaiDate';
 
-export type ActiveTab = 'entry' | 'ipb' | 'map-list' | 'settings';
+export type ActiveTab = 'news-hub' | 'entry' | 'ipb' | 'map-list' | 'settings';
 
 interface GovHeaderProps {
   activeTab: ActiveTab;
@@ -35,6 +35,7 @@ export function GovHeader({
   });
 
   const navItems: Array<{ id: ActiveTab; label: string; icon: typeof FilePlus2; badge?: number }> = [
+    { id: 'news-hub', label: 'ศูนย์ข่าวกรองรายวัน', icon: Newspaper },
     { id: 'entry', label: 'บันทึกเหตุการณ์', icon: FilePlus2 },
     { id: 'ipb', label: 'แดชบอร์ด & แผนที่ IPB', icon: BarChart3 },
     {
@@ -63,7 +64,7 @@ export function GovHeader({
             <span className="gov-date-pill" aria-label="วันที่ปัจจุบัน">
               วันที่ {todayLabel}
             </span>
-            <span className="gov-std-tag">มาตรฐานเว็บไซต์ภาครัฐ • Standalone System</span>
+            <span className="gov-std-tag">มาตรฐานเว็บไซต์ภาครัฐ • ผขว.บก.บน.56</span>
           </div>
 
           <div className="gov-a11y-controls" role="group" aria-label="เครื่องมือช่วยการเข้าถึงเนื้อหา">
