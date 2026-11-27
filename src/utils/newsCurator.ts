@@ -29,7 +29,7 @@ export const NEWS_CATEGORIES: NewsCategoryMeta[] = [
     id: 'social',
     label: 'สังคมและประชาคม',
     shortLabel: 'สังคม/ประชาคม',
-    description: 'ภัยพิบัติ/อุทกภัย สาธารณสุข การศึกษา แรงงาน ประชาคม และการพัฒนาชุมชน',
+    description: 'สาธารณสุข โรคระบาด การศึกษา ประชาคม และคุณภาพชีวิตประชาชนในพื้นที่',
     color: '#7c3aed',
     bgColor: '#ede9fe',
   },
@@ -49,6 +49,22 @@ export const NEWS_CATEGORIES: NewsCategoryMeta[] = [
     color: '#b91c1c',
     bgColor: '#fee2e2',
   },
+  {
+    id: 'weather',
+    label: 'พยากรณ์อากาศ/เฝ้าระวังภัยพิบัติ',
+    shortLabel: 'อากาศ/ภัยพิบัติ',
+    description: 'พยากรณ์อากาศ กรมอุตุฯ น้ำท่วม อุทกภัย มรสุม วาตภัย และดินถล่มในภาคใต้ตอนล่าง',
+    color: '#0284c7',
+    bgColor: '#e0f2fe',
+  },
+  {
+    id: 'migrant',
+    label: 'แรงงานต่างด้าว/หลบหนีเข้าเมืองผิดกฎหมาย',
+    shortLabel: 'แรงงานต่างด้าว',
+    description: 'การจับกุม ผลักดัน และความเคลื่อนไหวแรงงานต่างด้าว/ลักลอบเข้าเมืองผิดกฎหมาย',
+    color: '#b45309',
+    bgColor: '#fef3c7',
+  },
 ];
 
 export const NEWS_CATEGORY_MAP: Record<NewsCategoryId, NewsCategoryMeta> = {
@@ -57,6 +73,8 @@ export const NEWS_CATEGORY_MAP: Record<NewsCategoryId, NewsCategoryMeta> = {
   social: NEWS_CATEGORIES[2],
   narcotics: NEWS_CATEGORIES[3],
   security: NEWS_CATEGORIES[4],
+  weather: NEWS_CATEGORIES[5],
+  migrant: NEWS_CATEGORIES[6],
 };
 
 export const SOURCE_TIER_LABELS: Record<SourceTier, string> = {
@@ -199,6 +217,8 @@ export function classifyNewsCategory(
     social: 0,
     narcotics: 0,
     security: 0,
+    weather: 0,
+    migrant: 0,
   };
 
   const kwMap = newsRules.categoryKeywords as Record<NewsCategoryId, Array<[string, number]>>;
@@ -212,19 +232,33 @@ export function classifyNewsCategory(
     }
   }
 
-  // Prevent disaster/emergency/health news led by a Governor ("ผู้ว่าฯ ลงพื้นที่น้ำท่วม") from misclassifying as politics
+  // Prevent flood/weather/health/immigration news led by a Governor or police from misrouting
   if (
-    scores.social >= 6 &&
-    /(น้ำท่วม|อุทกภัย|สถานการณ์น้ำ|ระดับน้ำ|ระบายน้ำ|ผู้ประสบภัย|ฝนตกหนัก|สาธารณสุข|โรคระบาด|กรมควบคุมโรค)/.test(
+    scores.weather >= 6 &&
+    /(น้ำท่วม|อุทกภัย|สถานการณ์น้ำ|ระดับน้ำ|ระบายน้ำ|ผู้ประสบภัย|ฝนตกหนัก|กรมอุตุ|พยากรณ์อากาศ|มรสุม|คลื่นลม)/.test(
       titleText
     )
   ) {
+    scores.weather += 6;
+  }
+  if (scores.migrant >= 6 && /(ต่างด้าว|หลบหนีเข้าเมือง|ลักลอบเข้าเมือง|ตม\.)/.test(titleText)) {
+    scores.migrant += 4;
+  }
+  if (scores.social >= 6 && /(สาธารณสุข|โรคระบาด|กรมควบคุมโรค|วัคซีน)/.test(titleText)) {
     scores.social += 6;
   }
 
   let bestCat: NewsCategoryId = hintCategory || 'social';
   let bestScore = 0;
-  const order: NewsCategoryId[] = ['narcotics', 'security', 'economy', 'politics', 'social'];
+  const order: NewsCategoryId[] = [
+    'narcotics',
+    'migrant',
+    'weather',
+    'security',
+    'economy',
+    'politics',
+    'social',
+  ];
   for (const catId of order) {
     if (scores[catId] > bestScore) {
       bestScore = scores[catId];
@@ -407,6 +441,16 @@ export function mapNewsCategoryToIncidentCategory(
     if (/ป้ายผ้า|ตะปู|เผายาง|ก่อกวน/.test(text)) return pick([/ก่อกวน/]) || availableCategories[0];
     if (/จับกุม|ควบคุมตัว|ตรวจยึด/.test(text)) return pick([/ตรวจยึด|จับกุม/]) || availableCategories[0];
     return pick([/ข่าวสาร|เฝ้าระวัง/, /อื่นๆ/]) || availableCategories[0] || 'อื่นๆ';
+  }
+  if (item.category === 'weather') {
+    return pick([/อุบัติเหตุ|ภัยพิบัติ/, /ข่าวสาร|เฝ้าระวัง/, /อื่นๆ/]) || availableCategories[0] || 'อื่นๆ';
+  }
+  if (item.category === 'migrant') {
+    return (
+      pick([/แรงงานต่างด้าว|หลบหนีเข้าเมือง/, /ตรวจยึด|จับกุม/, /ข่าวสาร|เฝ้าระวัง/, /อื่นๆ/]) ||
+      availableCategories[0] ||
+      'อื่นๆ'
+    );
   }
   if (item.category === 'social' && /น้ำท่วม|อุทกภัย|วาตภัย|ดินถล่ม|ไฟไหม้|อุบัติเหตุ/.test(`${item.title} ${item.summary}`)) {
     return pick([/อุบัติเหตุ|ภัยพิบัติ/, /อื่นๆ/]) || availableCategories[0] || 'อื่นๆ';

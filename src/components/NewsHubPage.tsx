@@ -127,6 +127,8 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
       social: 0,
       narcotics: 0,
       security: 0,
+      weather: 0,
+      migrant: 0,
     };
     for (const item of itemsInWindow) {
       counts[item.category] = (counts[item.category] || 0) + 1;
@@ -209,10 +211,10 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
               </span>
             </div>
             <h2 id="news-hub-heading" className="section-title" style={{ marginTop: '0.5rem' }}>
-              ศูนย์ข่าวกรองรายวัน 7 จังหวัดภาคใต้ตอนล่าง
+              ศูนย์ข่าวกรองรายวัน 7 จังหวัดภาคใต้ตอนล่าง (7 หมวดข่าวกรอง)
             </h2>
             <p className="section-subtitle">
-              สรุปเนื้อหาข่าวให้เข้าใจครบภายใน 1 ย่อหน้า (4–5 บรรทัด) ตามรูปแบบสำนักข่าวกรองแห่งชาติ ครอบคลุมพื้นที่ ผขว.บก.บน.56
+              สรุปเนื้อหาข่าวให้เข้าใจครบภายใน 1 ย่อหน้า (4–5 บรรทัด) ตามรูปแบบสำนักข่าวกรองแห่งชาติ ครอบคลุมพื้นที่ ผขว.บก.บน.56 ทั้งด้านการเมือง เศรษฐกิจ สังคม ยาเสพติด ความมั่นคง อากาศ/ภัยพิบัติ และแรงงานต่างด้าว
             </p>
           </div>
           <div className="news-hub-actions">
@@ -241,8 +243,8 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
           </div>
         </div>
 
-        {/* 5-Category KPI Selector Cards */}
-        <div className="news-kpi-grid" role="group" aria-label="ตัวกรอง 5 หมวดข่าวกรอง">
+        {/* 7-Category KPI Selector Cards */}
+        <div className="news-kpi-grid" role="group" aria-label="ตัวกรอง 7 หมวดข่าวกรอง">
           {NEWS_CATEGORIES.map((cat) => {
             const active = categoryFilter === cat.id;
             return (

@@ -75,10 +75,31 @@ describe('Wing 56 7-Province Detection & 5-Category Classification', () => {
     ]);
   });
 
-  it('classifies the 5 intelligence categories accurately and prevents flood/governor misrouting', () => {
+  it('classifies the 7 intelligence categories accurately including weather and migrant labor', () => {
     expect(
       classifyNewsCategory(
         'ผู้ว่าฯ สงขลา ประชุมติดตามสถานการณ์น้ำท่วมและแผนอพยพผู้ประสบภัย',
+        ''
+      ).category
+    ).toBe('weather');
+
+    expect(
+      classifyNewsCategory(
+        'กรมอุตุนิยมวิทยาเตือนภาคใต้ฝั่งตะวันออกฝนตกหนักและคลื่นลมแรง',
+        ''
+      ).category
+    ).toBe('weather');
+
+    expect(
+      classifyNewsCategory(
+        'ตม.ปัตตานีกวดขันจับกุมแรงงานต่างด้าวหลบหนีเข้าเมืองผิดกฎหมาย',
+        ''
+      ).category
+    ).toBe('migrant');
+
+    expect(
+      classifyNewsCategory(
+        'กรมควบคุมโรคติดตามสถานการณ์โรคระบาดและเร่งฉีดวัคซีนในพื้นที่',
         ''
       ).category
     ).toBe('social');

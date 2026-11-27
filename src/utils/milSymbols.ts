@@ -24,6 +24,7 @@ const CATEGORY_SIDC_MAP: Record<string, MilSymbolSpec> = {
   'ก่อกวน/โปรยตะปูเรือใบ-เผายาง': { sidc: 'SHGPI-----****X', label: 'Harassment / Road Disruption' },
   'ทำลายกล้อง CCTV': { sidc: 'SHGPE-----****X', label: 'CCTV Sabotage / Destruction' },
   'อุบัติเหตุ/ภัยพิบัติ': { sidc: 'SNGPE-----****X', label: 'Accident / Disaster' },
+  'แรงงานต่างด้าว/หลบหนีเข้าเมือง': { sidc: 'SNGPU-----****X', label: 'Illegal Migration / Labor' },
   'ข่าวสารความเคลื่อนไหว/เฝ้าระวัง': { sidc: 'SUGPU-----****X', label: 'Threat Watch / Advisory' },
   'อื่นๆ': { sidc: 'SUGPU-----****X', label: 'Other / Unspecified' },
 };

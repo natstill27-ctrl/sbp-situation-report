@@ -1,6 +1,6 @@
 import newsRules from '../data/newsRules.json';
 import type { AppSettings } from '../types/incident';
-import type { CuratedNewsItem, DailyNewsFeed } from '../types/news';
+import type { CuratedNewsItem, DailyNewsFeed, NewsCategoryId } from '../types/news';
 import { curateRawNewsItems } from './newsCurator';
 
 export interface FetchNewsFeedResult {
@@ -118,7 +118,7 @@ export async function fetchDailyNewsFeed(
             link: string;
             sourceName: string;
             publishedAt: string;
-            queryHintCategory?: 'politics' | 'economy' | 'social' | 'narcotics' | 'security';
+            queryHintCategory?: NewsCategoryId;
           }>;
           items?: CuratedNewsItem[];
           generatedAt?: string;

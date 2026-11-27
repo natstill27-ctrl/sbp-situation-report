@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { GovFooter } from './components/GovFooter';
-import { GovHeader, type ActiveTab } from './components/GovHeader';
+import { GovHeader, W56Sidebar, type ActiveTab } from './components/GovHeader';
 import { IncidentFormPage } from './components/IncidentFormPage';
 import { DEFAULT_SETTINGS, buildSampleIncidents } from './data/defaults';
 import type { AppSettings, IncidentRecord, WatchAlertRecord } from './types/incident';
@@ -58,7 +58,28 @@ export function App() {
   const [lastPulledAt, setLastPulledAt] = useState<string | null>(null);
   const [startupNotice, setStartupNotice] = useState<string>('');
 
-  const [fontScale, setFontScale] = useState<number>(1);
+  const [themeDark, setThemeDark] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('w56_intel_theme') === 'dark';
+    } catch {
+      return false;
+    }
+  });
+  const [fontLarge, setFontLarge] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('w56_intel_font_large') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('w56_intel_sidebar_collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
   const [highContrast, setHighContrast] = useState<boolean>(false);
 
   useEffect(() => {
@@ -123,10 +144,32 @@ export function App() {
     };
   }, []);
 
-  // Apply DGA accessibility font scaling & high contrast mode to root document
+  // Apply Wing 56 Security HUB Soft Light/Dark, Large Font & High Contrast modes
   useEffect(() => {
-    document.documentElement.style.fontSize = `${16 * fontScale}px`;
-  }, [fontScale]);
+    document.documentElement.classList.toggle('theme-dark', themeDark);
+    try {
+      localStorage.setItem('w56_intel_theme', themeDark ? 'dark' : 'light');
+    } catch {
+      // ignore storage errors
+    }
+  }, [themeDark]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('font-large', fontLarge);
+    try {
+      localStorage.setItem('w56_intel_font_large', fontLarge ? '1' : '0');
+    } catch {
+      // ignore storage errors
+    }
+  }, [fontLarge]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('w56_intel_sidebar_collapsed', sidebarCollapsed ? '1' : '0');
+    } catch {
+      // ignore storage errors
+    }
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('high-contrast', highContrast);
@@ -416,22 +459,36 @@ export function App() {
   const hasGasUrl = Boolean((settings.gasFetchUrl || settings.gasWebhookUrl).trim());
 
   return (
-    <div className="app-shell">
-      <GovHeader
+    <div className="w56-app-layout">
+      <W56Sidebar
         activeTab={activeTab}
         onChangeTab={(tab) => setActiveTab(tab)}
         settings={settings}
         pendingSyncCount={pendingSyncCount}
         totalIncidents={incidents.length}
-        lastPulledAt={lastPulledAt}
-        fontScale={fontScale}
-        onChangeFontScale={setFontScale}
-        highContrast={highContrast}
-        onToggleHighContrast={() => setHighContrast((prev) => !prev)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
+        mobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
       />
 
-      <main id="main-content" className="gov-main" tabIndex={-1}>
-        <div className={`gov-container ${activeTab === 'ipb' ? 'wide-dashboard' : ''}`}>
+      <div className="w56-workspace-col">
+        <GovHeader
+          activeTab={activeTab}
+          settings={settings}
+          pendingSyncCount={pendingSyncCount}
+          lastPulledAt={lastPulledAt}
+          themeDark={themeDark}
+          onToggleTheme={() => setThemeDark((prev) => !prev)}
+          fontLarge={fontLarge}
+          onToggleFontLarge={() => setFontLarge((prev) => !prev)}
+          highContrast={highContrast}
+          onToggleHighContrast={() => setHighContrast((prev) => !prev)}
+          onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+        />
+
+        <main id="main-content" className="gov-main" tabIndex={-1}>
+          <div className={`gov-container ${activeTab === 'ipb' ? 'wide-dashboard' : ''}`}>
           {startupNotice && (
             <div className="inline-alert info startup-banner" role="status">
               <span>{startupNotice}</span>
@@ -529,10 +586,11 @@ export function App() {
               )}
             </Suspense>
           )}
-        </div>
-      </main>
+          </div>
+        </main>
 
-      <GovFooter settings={settings} />
+        <GovFooter settings={settings} />
+      </div>
     </div>
   );
 }

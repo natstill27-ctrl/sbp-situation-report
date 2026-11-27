@@ -169,4 +169,38 @@ describe('5W1H Intelligence Brief Formatter (NIA Style)', () => {
     expect(lines[1]).toContain('เผยแพร่เมื่อ :');
     expect(lines[3]).toBe('ที่มา : https://example.com/trang-econ');
   });
+
+  it('generates NIA prose summaries for weather and migrant categories', () => {
+    const weatherItem: CuratedNewsItem = {
+      id: 'NEWS-WEATHER-1',
+      category: 'weather',
+      title: 'กรมอุตุฯ เตือน 5 อำเภอ จ.พัทลุง เฝ้าระวังฝนตกหนักและน้ำท่วมฉับพลัน',
+      summary: 'กรมอุตุฯ เตือน 5 อำเภอ จ.พัทลุง เฝ้าระวังฝนตกหนักและน้ำท่วมฉับพลัน',
+      link: 'https://example.com/w1',
+      sourceName: 'Thai PBS',
+      sourceTier: 'official-public',
+      publishedAt: '2026-11-27T01:00:00.000Z',
+      provinces: ['พัทลุง'],
+      score: 14,
+    };
+    const niaWeather = buildNiaProseSummary(weatherItem);
+    expect(niaWeather.paragraph).toContain('ทั้งนี้');
+    expect(niaWeather.paragraph).toContain('บรรเทาสาธารณภัย');
+
+    const migrantItem: CuratedNewsItem = {
+      id: 'NEWS-MIGRANT-1',
+      category: 'migrant',
+      title: 'ตม.สงขลา จับกุมแรงงานต่างด้าวหลบหนีเข้าเมืองผิดกฎหมายพื้นที่ชายแดน',
+      summary: 'ตม.สงขลา จับกุมแรงงานต่างด้าวหลบหนีเข้าเมืองผิดกฎหมายพื้นที่ชายแดน',
+      link: 'https://example.com/m1',
+      sourceName: 'สยามรัฐ',
+      sourceTier: 'mainstream-credible',
+      publishedAt: '2026-11-27T02:00:00.000Z',
+      provinces: ['สงขลา'],
+      score: 15,
+    };
+    const niaMigrant = buildNiaProseSummary(migrantItem);
+    expect(niaMigrant.paragraph).toContain('ตม.');
+    expect(niaMigrant.paragraph).toContain('ชายแดน');
+  });
 });

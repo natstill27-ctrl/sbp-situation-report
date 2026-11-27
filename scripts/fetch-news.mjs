@@ -32,7 +32,15 @@ const QUERIES = [
   },
   {
     hintCategory: 'social',
-    q: '(น้ำท่วม OR อุทกภัย OR สาธารณสุข OR การศึกษา OR ประชาคม OR ชุมชน OR แรงงานต่างด้าว) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:3d',
+    q: '(สาธารณสุข OR โรคระบาด OR การศึกษา OR ประชาคม OR ชุมชน OR พัฒนาสังคม OR องค์กรภาคประชาชน) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:3d',
+  },
+  {
+    hintCategory: 'weather',
+    q: '(พยากรณ์อากาศ OR กรมอุตุนิยมวิทยา OR น้ำท่วม OR อุทกภัย OR ฝนตกหนัก OR วาตภัย OR ดินถล่ม OR คลื่นลมแรง OR เฝ้าระวังภัยพิบัติ) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:3d',
+  },
+  {
+    hintCategory: 'migrant',
+    q: '(แรงงานต่างด้าว OR หลบหนีเข้าเมือง OR ลักลอบเข้าเมือง OR เข้าเมืองผิดกฎหมาย OR ตม. OR ต่างด้าวทำงานต้องห้าม OR ค้ามนุษย์) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:7d',
   },
   {
     hintCategory: 'narcotics',
@@ -134,7 +142,15 @@ function extractDistrictHint(text, rules) {
 }
 
 function classifyCategory(title, summary, hintCategory, rules) {
-  const scores = { politics: 0, economy: 0, social: 0, narcotics: 0, security: 0 };
+  const scores = {
+    politics: 0,
+    economy: 0,
+    social: 0,
+    narcotics: 0,
+    security: 0,
+    weather: 0,
+    migrant: 0,
+  };
   for (const [catId, pairs] of Object.entries(rules.categoryKeywords)) {
     for (const [kw, weight] of pairs) {
       if (title.includes(kw)) scores[catId] += weight * 2;
@@ -142,16 +158,22 @@ function classifyCategory(title, summary, hintCategory, rules) {
     }
   }
   if (
-    scores.social >= 6 &&
-    /(น้ำท่วม|อุทกภัย|สถานการณ์น้ำ|ระดับน้ำ|ระบายน้ำ|ผู้ประสบภัย|ฝนตกหนัก|สาธารณสุข|โรคระบาด|กรมควบคุมโรค)/.test(
+    scores.weather >= 6 &&
+    /(น้ำท่วม|อุทกภัย|สถานการณ์น้ำ|ระดับน้ำ|ระบายน้ำ|ผู้ประสบภัย|ฝนตกหนัก|กรมอุตุ|พยากรณ์อากาศ|มรสุม|คลื่นลม)/.test(
       title
     )
   ) {
+    scores.weather += 6;
+  }
+  if (scores.migrant >= 6 && /(ต่างด้าว|หลบหนีเข้าเมือง|ลักลอบเข้าเมือง|ตม\.)/.test(title)) {
+    scores.migrant += 4;
+  }
+  if (scores.social >= 6 && /(สาธารณสุข|โรคระบาด|กรมควบคุมโรค|วัคซีน)/.test(title)) {
     scores.social += 6;
   }
   let bestCat = hintCategory || 'social';
   let bestScore = 0;
-  for (const catId of ['narcotics', 'security', 'economy', 'politics', 'social']) {
+  for (const catId of ['narcotics', 'migrant', 'weather', 'security', 'economy', 'politics', 'social']) {
     if (scores[catId] > bestScore) {
       bestScore = scores[catId];
       bestCat = catId;

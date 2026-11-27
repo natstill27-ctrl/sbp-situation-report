@@ -1,4 +1,11 @@
-export type NewsCategoryId = 'politics' | 'economy' | 'social' | 'narcotics' | 'security';
+export type NewsCategoryId =
+  | 'politics'
+  | 'economy'
+  | 'social'
+  | 'narcotics'
+  | 'security'
+  | 'weather'
+  | 'migrant';
 
 export type SourceTier = 'official-public' | 'mainstream-credible' | 'local-neutral';
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-27T13:43:33.853Z",
+  "generatedAt": "2026-11-27T13:52:49.778Z",
   "windowHours": 168,
   "items": [
     {
@@ -17,6 +17,20 @@
       "score": 15
     },
     {
+      "id": "NEWS-O0HXPY",
+      "category": "economy",
+      "title": "พัทลุง | บุกทลายคลังบุหรี่ไฟฟ้า ยึดของกลาง 110 ลัง กว่า 22,000 ชิ้น มูลค่ากว่า 8 ล้านบาท จับผู้ต้องหา 1 ราย",
+      "summary": "พัทลุง | บุกทลายคลังบุหรี่ไฟฟ้า ยึดของกลาง 110 ลัง กว่า 22,000 ชิ้น มูลค่ากว่า 8 ล้านบาท จับผู้ต้องหา 1 ราย",
+      "link": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE9aYWdGUy1JbklWQ1VHSGVzT0RKR2l0andURzVuWm1pUGZIb1hXclFQVDl4SFphNGl3NHVMOGNOd2J6U2JyMVZEeEs1dmZOa0NaNW5OZDJqd3VKUQ?oc=5",
+      "sourceName": "HATYAI FOCUS",
+      "sourceTier": "local-neutral",
+      "publishedAt": "2026-11-27T09:21:07.000Z",
+      "provinces": [
+        "พัทลุง"
+      ],
+      "score": 9
+    },
+    {
       "id": "NEWS-1TY5P1G",
       "category": "politics",
       "title": "จังหวัดยะลา จัดพิธีบวงสรวงการก่อสร้างซุ้มถวายดอกไม้จันทน์ ภาคประชาชน ในส่วนภูมิภาค น้อมถวายความอาลัยและสำนึกในพระมหากรุณาธิคุณ สมเด็จพระบรมราชชนนีพันปีหลวง ณ สนามโรงพิธีช้างเผือก เทศบาลนครยะลา",
@@ -29,6 +43,34 @@
         "ยะลา"
       ],
       "score": 9
+    },
+    {
+      "id": "NEWS-9QM8PZ",
+      "category": "weather",
+      "title": "อุตุฯ นราธิวาส เตือนภาคใต้ฝั่งตะวันออกมีฝนเพิ่มขึ้น ระหว่างวันที่ 28–30 พฤศจิกายนนี้ ขณะที่จังหวัดนราธิวาสมีฝนฟ้าคะนองหลายพื้นที่ ขอประชาชนเฝ้าระวังฝนตกหนักและน้ำท่วมฉับพลัน",
+      "summary": "อุตุฯ นราธิวาส เตือนภาคใต้ฝั่งตะวันออกมีฝนเพิ่มขึ้น ระหว่างวันที่ 28–30 พฤศจิกายนนี้ ขณะที่จังหวัดนราธิวาสมีฝนฟ้าคะนองหลายพื้นที่ ขอประชาชนเฝ้าระวังฝนตกหนักและน้ำท่วมฉับพลัน",
+      "link": "https://news.google.com/rss/articles/CBMib0FVX3lxTE96LXVEclJqUTQ0dnRtYk16VFU4cUZ5YjFLVG4xbkp5cUR6dDg5bUVSUWhLTEJiX1F5N0EzUzBxbnd4ZmdMYW12LW1sR0VvOVlBR1p6VmsyQy1oUDhfbkVNVzczazdaU2tpc2xRMnBOWQ?oc=5",
+      "sourceName": "NBT CONNEXT",
+      "sourceTier": "official-public",
+      "publishedAt": "2026-11-27T09:00:47.000Z",
+      "provinces": [
+        "นราธิวาส"
+      ],
+      "score": 29
+    },
+    {
+      "id": "NEWS-1DSJCK8",
+      "category": "economy",
+      "title": "ถกเดือดอนาคต “สนามบินพัทลุง”! นักเคลื่อนไหว-นักธุรกิจตั้งคำถามสร้างแล้วร้างไหม? หวั่นแค่โครงการขายฝัน ย้ายจุดมาแล้ว 3 แห่ง เตือนชาวบ้านอย่าเห็นแก่เงินเวนคืนจนเสียอาชีพ",
+      "summary": "ถกเดือดอนาคต “สนามบินพัทลุง”! นักเคลื่อนไหว-นักธุรกิจตั้งคำถามสร้างแล้วร้างไหม? หวั่นแค่โครงการขายฝัน ย้ายจุดมาแล้ว 3 แห่ง เตือนชาวบ้านอย่าเห็นแก่เงินเวนคืนจนเสียอาชีพ",
+      "link": "https://news.google.com/rss/articles/CBMiT0FVX3lxTE9yeUEwNmc1eTVCSThNemU5cHFpN1NNYV9vODdvNU5jNVNnTVNBaE1Yb3Y1Q2dNVHoyeWZkc2NrS0pjOS1mY09nZ2dtUlhjWWc?oc=5",
+      "sourceName": "สยามรัฐ",
+      "sourceTier": "mainstream-credible",
+      "publishedAt": "2026-11-27T08:37:00.000Z",
+      "provinces": [
+        "พัทลุง"
+      ],
+      "score": 8
     },
     {
       "id": "NEWS-153IF1I",
@@ -120,8 +162,22 @@
       "score": 8
     },
     {
+      "id": "NEWS-MKBZS5",
+      "category": "social",
+      "title": "ศอ.บต. ร่วมสืบสานภูมิปัญญาท้องถิ่น “ดำนาปลูกข้าวแบบดั้งเดิมชุมชนพิเทน” ส่งต่อองค์ความรู้เกษตรสู่คนรุ่นใหม่",
+      "summary": "ศอ.บต. ร่วมสืบสานภูมิปัญญาท้องถิ่น “ดำนาปลูกข้าวแบบดั้งเดิมชุมชนพิเทน” ส่งต่อองค์ความรู้เกษตรสู่คนรุ่นใหม่",
+      "link": "https://news.google.com/rss/articles/CBMiU0FVX3lxTE5DcWJXYUw1TmhQQ3hWaDRIT2EzQTJsVGRSRXlYbjdMdmJpLU9wbVdUdHVObGdHbGF3Q0tfbWgxS2RSQlB4SFF0QlpiMHpYWjNsUWNV?oc=5",
+      "sourceName": "เดลินิวส์",
+      "sourceTier": "mainstream-credible",
+      "publishedAt": "2026-11-27T02:33:00.000Z",
+      "provinces": [
+        "ภาคใต้ตอนล่าง"
+      ],
+      "score": 8
+    },
+    {
       "id": "NEWS-1G7XNCQ",
-      "category": "security",
+      "category": "migrant",
       "title": "\"บิ๊กนพ\"สั่ง​ตม.ปัตตานีกวดขันคนต่างด้าวพื้นที่จังหวัดชายแดนใต้จับกุมต่างด้าวทำงานต้องห้าม",
       "summary": "\"บิ๊กนพ\"สั่ง​ตม.ปัตตานีกวดขันคนต่างด้าวพื้นที่จังหวัดชายแดนใต้จับกุมต่างด้าวทำงานต้องห้าม",
       "link": "https://news.google.com/rss/articles/CBMiT0FVX3lxTE5XS1FzaU1qTFdFUjh6RXpIcDhsa0MwRFBfUG5aMWlPdGxBT3V2eDR0V01RcWFveXJYUVhJRTM3dk0xN0NidTh1dk1CYmpYUzQ?oc=5",
@@ -131,7 +187,22 @@
       "provinces": [
         "ปัตตานี"
       ],
-      "score": 10
+      "score": 36
+    },
+    {
+      "id": "NEWS-147TD7T",
+      "category": "social",
+      "title": "นาทวี | ปลักหนูส่งเสียงค้าน! โซลาร์ฟาร์ม 450 ไร่ ห่วงกระทบชุมชน–สิ่งแวดล้อม จี้รัฐตรวจสอบเอกสารสิทธิ์ที่ดินก่อนเดินหน้าโครงการ",
+      "summary": "นาทวี | ปลักหนูส่งเสียงค้าน! โซลาร์ฟาร์ม 450 ไร่ ห่วงกระทบชุมชน–สิ่งแวดล้อม จี้รัฐตรวจสอบเอกสารสิทธิ์ที่ดินก่อนเดินหน้าโครงการ",
+      "link": "https://news.google.com/rss/articles/CBMiWkFVX3lxTFA2eXR6YlFwVi14RGhQdElVVXdBdWd3UHVoWGdfMDVhT1dJVm1FVnRtSmxNQkZGQzluc25HS1BONWlGTE5qa3pPR25Oc0I4bEctZVk5N1RQWi1GQQ?oc=5",
+      "sourceName": "HATYAI FOCUS",
+      "sourceTier": "local-neutral",
+      "publishedAt": "2026-11-27T01:59:01.000Z",
+      "provinces": [
+        "สงขลา"
+      ],
+      "districtHint": "นาทวี",
+      "score": 7
     },
     {
       "id": "NEWS-UPLOO2",
@@ -177,6 +248,20 @@
       "score": 23
     },
     {
+      "id": "NEWS-1VSLFOC",
+      "category": "social",
+      "title": "จังหวัดสงขลา ผนึกกำลังทุกภาคส่วนจัดงาน “ร้อยเรื่องเล่า น้อมใจถวายอาลัยแม่ของแผ่นดิน” อย่างยิ่งใหญ่และสมพระเกียรติ น้อมสำนึกในพระมหากรุณาธิคุณอันหาที่สุดมิได้ พร้อมสืบสานพระราชปณิธานด้านศิลปวัฒนธรรม ผ้าไทย และภูมิปัญญาท้องถิ่นให้คงอยู่คู่แผ่นดินไทย",
+      "summary": "จังหวัดสงขลา ผนึกกำลังทุกภาคส่วนจัดงาน “ร้อยเรื่องเล่า น้อมใจถวายอาลัยแม่ของแผ่นดิน” อย่างยิ่งใหญ่และสมพระเกียรติ น้อมสำนึกในพระมหากรุณาธิคุณอันหาที่สุดมิได้ พร้อมสืบสานพระราชปณิธานด้านศิลปวัฒนธรรม ผ้าไทย และภูมิปัญญาท้องถิ่นให้คงอยู่คู่แผ่นดินไทย",
+      "link": "https://news.google.com/rss/articles/CBMib0FVX3lxTE93clJta1NqVXNhRXBlTW1jUzd6SExSc054WEhFR2hfQW4xczRudnNLVWxsWWFnQXVBUDF6V1lhUnkzd1V4dzlUdHl0MjVqOGlueUZfRWRVeW5BMkJWN3VTcGZTMXFjOXVwZFN6bDdmMA?oc=5",
+      "sourceName": "NBT CONNEXT",
+      "sourceTier": "official-public",
+      "publishedAt": "2026-11-26T09:02:21.000Z",
+      "provinces": [
+        "สงขลา"
+      ],
+      "score": 9
+    },
+    {
       "id": "NEWS-E944HO",
       "category": "social",
       "title": "ศปพร. ถ่ายทอดแนวทางขับเคลื่อนศูนย์การเรียนรู้ระดับตำบล น้อมนำหลัก “เข้าใจ เข้าถึง พัฒนา” เสริมสร้างโอกาสทางการศึกษาและคุณภาพชีวิตประชาชนชายแดนใต้",
@@ -188,7 +273,7 @@
       "provinces": [
         "ปัตตานี"
       ],
-      "score": 11
+      "score": 19
     },
     {
       "id": "NEWS-1TMW7HA",
@@ -206,7 +291,7 @@
     },
     {
       "id": "NEWS-1FY42JE",
-      "category": "social",
+      "category": "weather",
       "title": "ตรังเปิดเวทีจัดทำแผนแม่บทบริหารน้ำลุ่มน้ำภาคใต้ฝั่งตะวันตก รับมือภัยแล้ง-น้ำท่วมอย่างยั่งยืน",
       "summary": "ตรังเปิดเวทีจัดทำแผนแม่บทบริหารน้ำลุ่มน้ำภาคใต้ฝั่งตะวันตก รับมือภัยแล้ง-น้ำท่วมอย่างยั่งยืน",
       "link": "https://news.google.com/rss/articles/CBMiT0FVX3lxTE5wT29yU2dHSVV5cWV6UEM1d2pWRHB2dk1OclA4WDF3VkwzaVRMVHoxTkNYclVoSWhEaElZWGg0dk0tLVpyOEpwRmlUbFdLYXc?oc=5",
@@ -249,7 +334,7 @@
     },
     {
       "id": "NEWS-1JO03V7",
-      "category": "social",
+      "category": "weather",
       "title": "ผู้ว่าฯสงขลาประชุมเกาะติดสถานการณ์น้ำ บูรณาการหน่วยงาน เฝ้าระวังพื้นที่เสี่ยง",
       "summary": "ผู้ว่าฯสงขลาประชุมเกาะติดสถานการณ์น้ำ บูรณาการหน่วยงาน เฝ้าระวังพื้นที่เสี่ยง",
       "link": "https://news.google.com/rss/articles/CBMiU0FVX3lxTE85RWgtaU9VS2xsU3I5TzNYM2JPZWx0M0VXNy1nZHB2eUZhU1pXS2hjSUlpZkFxZkk2UFdudEw4bnNVckF1ZUlCdmk2MEJJUlJZRFhZ?oc=5",
@@ -262,22 +347,22 @@
       "score": 18
     },
     {
-      "id": "NEWS-1A9O25P",
-      "category": "social",
-      "title": "ฝนตกหนักต่อเนื่อง เตือน 5 อำเภอ จ.พัทลุง รับมือน้ำท่วม| เที่ยงทันข่าว | 26 พ.ย. 69",
-      "summary": "ฝนตกหนักต่อเนื่อง เตือน 5 อำเภอ จ.พัทลุง รับมือน้ำท่วม| เที่ยงทันข่าว | 26 พ.ย. 69",
-      "link": "https://news.google.com/rss/articles/CBMiVEFVX3lxTE4xSGlRS2JnSU9QUXpXTW9DUndqeWlDcThYSDhwWVlJZW9taHhOWnYycllhWlRHNkNSV2E0a19BRTNYaXNFSFhpTWM1TWU2dVIyUGJZdQ?oc=5",
-      "sourceName": "pptvhd36",
-      "sourceTier": "mainstream-credible",
-      "publishedAt": "2026-11-26T05:15:00.000Z",
+      "id": "NEWS-JX0K3V",
+      "category": "economy",
+      "title": "สงขลา | ตรวจสอบหลังพบปลากระชังเกษตรกรทยอยตาย 2-3 วัน เร่งเก็บตัวอย่างตรวจหาสาเหตุ",
+      "summary": "สงขลา | ตรวจสอบหลังพบปลากระชังเกษตรกรทยอยตาย 2-3 วัน เร่งเก็บตัวอย่างตรวจหาสาเหตุ",
+      "link": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE9hbVkzdldzcHpERUlvNVFIa0J5NVpOQ2dPNmNnMjdfUkxCVzVfRG9FeVNBam5DY09iRUsyYTRPOWdWRFBENGhBWTBiT2h2S1lKZ05FbU9DaG9nZw?oc=5",
+      "sourceName": "HATYAI FOCUS",
+      "sourceTier": "local-neutral",
+      "publishedAt": "2026-11-26T05:14:56.000Z",
       "provinces": [
-        "พัทลุง"
+        "สงขลา"
       ],
-      "score": 26
+      "score": 7
     },
     {
       "id": "NEWS-ZMLBYT",
-      "category": "economy",
+      "category": "migrant",
       "title": "บก.ควบคุมสุริโยทัย ยกระดับคุมเข้ม 4 ด่านชายแดนไทย–มาเลเซีย สกัดกั้นสิ่งผิดกฎหมายและภัยคุกคามความมั่นคง",
       "summary": "วันที่ 25 พฤศจิกายน 2569 กองร้อยป้องกันชายแดน กองบังคับการควบคุมสุริโยทัย เพิ่มมาตรการเข้มงวดในการตรวจสอบบุคคลและยานพาหนะที่เดินทางเข้า-ออกประเทศ ผ่านด่านพรมแดนไทย–มาเลเซีย ทั้ง 4 แห่ง ได้แก่ ด่านพรมแดนเบตง อำเภอเบตง จังหวัดยะลา , ด่านพรมแดนบูเก๊ะตา อำเภอแว้ง ,ด่านพรมแดนสุไหงโก-ลก อำเภอสุไหงโก-ลก และด่านพรมแดนตากใบ อำเภอตากใบ จังหวัดนราธิวาส โดยตรวจสอบอย่างละเอียดรอบคอบ เพื่อสกัดกั้นการลักลอบนำยาเสพติด สินค้าหนีภาษี และแรงงานต่างด้าวเข้าเมืองผิดกฎหมาย รวมถึงเฝ้าระวังการก่อเหตุและภัยแทรกซ้อนที่อาจกระทบต่อความมั่นคงในพื้นที่จังหวัดชายแดนภาคใต้ ทั้งนี้ เจ้าหน้าที่ประจำด่านพรมแดนทุกแห่งได้บูรณาการความร่วมมือกับหน่วยงานด้านความมั่นคง ศุลกากร และตรวจคนเข้าเมือง ดำเนินการตรวจสอบเอกสารการเดินทาง ตรวจค้นสัมภาระ และคัดกรองยานพาหนะทุกประเภทอย่างเข้มงวด ควบคู่กับการอำนวยความสะดวกแก่ประชาชนและนักท่องเที่ยวที่เดินทางผ่านเข้า-ออกประเทศอย่างถูกต้องตามกฎหมาย เพื่อดูแลความปลอดภัย ป้องกันการกระทำผิด และสร้",
       "link": "https://www.southpeace.go.th/?p=192254",
@@ -289,7 +374,21 @@
         "นราธิวาส"
       ],
       "districtHint": "เบตง",
-      "score": 14
+      "score": 23
+    },
+    {
+      "id": "NEWS-1TSETFU",
+      "category": "social",
+      "title": "สงขลา | โรงพยาบาลสงขลาก้าวหน้าอีกขั้น เปิดบริการเปลี่ยนถ่ายพลาสมา (TPE) ประเดิมรักษาผู้ป่วยรายแรกสำเร็จ",
+      "summary": "สงขลา | โรงพยาบาลสงขลาก้าวหน้าอีกขั้น เปิดบริการเปลี่ยนถ่ายพลาสมา (TPE) ประเดิมรักษาผู้ป่วยรายแรกสำเร็จ",
+      "link": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE1nU2NVaVRIcGF0UHBtWmNGUjJwUlZqX0xtVC14Q2lKaGNHcGVXaDFYMkZhTUlRTC1EMWJYSVFlTG1GakJxdGw1V01SNUt3WXdXV1NTSDZNQXFKUQ?oc=5",
+      "sourceName": "HATYAI FOCUS",
+      "sourceTier": "local-neutral",
+      "publishedAt": "2026-11-26T04:06:05.000Z",
+      "provinces": [
+        "สงขลา"
+      ],
+      "score": 9
     },
     {
       "id": "NEWS-7IHC0Q",
@@ -322,7 +421,7 @@
     },
     {
       "id": "NEWS-KPZJPR",
-      "category": "social",
+      "category": "weather",
       "title": "หนุ่มปัตตานี สุดเจ๋ง! สร้างแอปพลิเคชัน “Jaga\" เตือนน้ำท่วมแค่กดปุ่มเดียว",
       "summary": "หนุ่มปัตตานี สุดเจ๋ง! สร้างแอปพลิเคชัน “Jaga\" เตือนน้ำท่วมแค่กดปุ่มเดียว",
       "link": "https://news.google.com/rss/articles/CBMicEFVX3lxTE9VXzlTWjVUd1BZMXE5anFrc19BUzZoVU5tSDFjYzYxdTRKZWN5WlhaWExyTzRBdUpSSlIwUW03RXRRb2Z6QnJndjhEM0EzMGhBVklHUW1CbHhnNVNnMGpTUUE0WDNOT1FKOGppUDFTbkU?oc=5",
@@ -347,26 +446,55 @@
         "ปัตตานี"
       ],
       "districtHint": "โคกโพธิ์",
-      "score": 26
+      "score": 22
     },
     {
-      "id": "NEWS-3JZVWE",
-      "category": "social",
-      "title": "วช. ผนึก ม.อ. เปิดเวทีเสวนา \"หาดใหญ่กับการรับมือน้ำท่วมฉับพลัน\" เชื่อมงานวิจัยและความร่วมมือ เสริมความพร้อมรับมืออุทกภัย",
-      "summary": "วช. ผนึก ม.อ. เปิดเวทีเสวนา \"หาดใหญ่กับการรับมือน้ำท่วมฉับพลัน\" เชื่อมงานวิจัยและความร่วมมือ เสริมความพร้อมรับมืออุทกภัย",
-      "link": "https://news.google.com/rss/articles/CBMiXEFVX3lxTFB3SzNzLU5NSWlXOXFnZXRhZVRTV19XSU1WMHd3aThQUUo3NFlGZXZFS3phZVNPalNHN0dCZGI2NXR1S0tHQTNHdVE3azJIR0FRdkhEbUpfRnlCNXdU?oc=5",
-      "sourceName": "ผู้จัดการออนไลน์",
+      "id": "NEWS-16OQ050",
+      "category": "politics",
+      "title": "ป.ป.ช. ลุยตรวจสอบ สระว่ายน้ำปัตตานี งบกว่า 116 ล้าน",
+      "summary": "ป.ป.ช. ลุยตรวจสอบ สระว่ายน้ำปัตตานี งบกว่า 116 ล้าน",
+      "link": "https://news.google.com/rss/articles/CBMiS0FVX3lxTE5jOEJ5Mk5TMlJPNWUxdi1STXh6dkF1Z0JzVUhTNjN4enJsajJRdVVWemNZcE9YU28wZGVjQWV5ZEVPOERJeUs4QmpxZw?oc=5",
+      "sourceName": "ช่อง 7",
       "sourceTier": "mainstream-credible",
-      "publishedAt": "2026-11-25T12:13:00.000Z",
+      "publishedAt": "2026-11-25T11:59:41.000Z",
       "provinces": [
-        "สงขลา"
+        "ปัตตานี"
+      ],
+      "score": 10
+    },
+    {
+      "id": "NEWS-1Q4CHGN",
+      "category": "economy",
+      "title": "ปัตตานี | สกัดจับกระบะลอบขน “ปลากะพงขาว” จากมาเลเซีย 2.5 ตัน พบไม่มีใบอนุญาตนำเข้า ส่งดำเนินคดี",
+      "summary": "ปัตตานี | สกัดจับกระบะลอบขน “ปลากะพงขาว” จากมาเลเซีย 2.5 ตัน พบไม่มีใบอนุญาตนำเข้า ส่งดำเนินคดี",
+      "link": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE1ieDN5VzJSU05qZzFoSzFSTnBLZzg0YTFKdzJfeUh5LTZCLVZTS0ZPOHl2NWJTQU84anVHRk0zTkNwZ29MS2tJZ0taMk93cXVOc3ZFQ1ZOeFhldw?oc=5",
+      "sourceName": "HATYAI FOCUS",
+      "sourceTier": "local-neutral",
+      "publishedAt": "2026-11-25T07:46:58.000Z",
+      "provinces": [
+        "ปัตตานี"
+      ],
+      "score": 9
+    },
+    {
+      "id": "NEWS-VF3U0O",
+      "category": "economy",
+      "title": "พัทลุง | จับกุมผู้ต้องหาพร้อมบุหรี่ไฟฟ้า มูลค่ากว่า 13 ล้านบาท ก่อนเผยเป็นของ \"บังอี ชาวหาดใหญ่\" มาฝากไว้",
+      "summary": "พัทลุง | จับกุมผู้ต้องหาพร้อมบุหรี่ไฟฟ้า มูลค่ากว่า 13 ล้านบาท ก่อนเผยเป็นของ \"บังอี ชาวหาดใหญ่\" มาฝากไว้",
+      "link": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE9tMDljLWJvTWF1MHZvMzFpb1dsd1YxY0NhNDY0NmVncnlnWkhDdHVBVHZQc2NvOGE4UndzTzVxSlpEajV5WEdtOU5vUW1hQjRoeW1hcERzQnNWdw?oc=5",
+      "sourceName": "HATYAI FOCUS",
+      "sourceTier": "local-neutral",
+      "publishedAt": "2026-11-25T04:16:17.000Z",
+      "provinces": [
+        "สงขลา",
+        "พัทลุง"
       ],
       "districtHint": "หาดใหญ่",
-      "score": 28
+      "score": 9
     },
     {
       "id": "NEWS-U1Q6W4",
-      "category": "social",
+      "category": "weather",
       "title": "ฝนกลับมาตกหนักทั่ว จ.พัทลุง เฝ้าระวัง! สถานการณ์น้ำท่วมอีกครั้ง",
       "summary": "ฝนกลับมาตกหนักทั่ว จ.พัทลุง เฝ้าระวัง! สถานการณ์น้ำท่วมอีกครั้ง",
       "link": "https://news.google.com/rss/articles/CBMiRkFVX3lxTE5kdDl2cTE1VVdTaTNEYzVfT1M3bUhIRGYzcVV2NVpIdHc4RVJwX0VwUE9Sdkg0REJmTG5TRzF4R1JEUFZ4LXc?oc=5",
@@ -379,22 +507,8 @@
       "score": 28
     },
     {
-      "id": "NEWS-SE2H25",
-      "category": "social",
-      "title": "ฝนฟ้าอากาศเช้านี้ 25 พ.ย.69 | ประกาศ 3 อำเภอ เป็นเขตภัยพิบัติน้ำท่วม จ.พัทลุง",
-      "summary": "ฝนฟ้าอากาศเช้านี้ 25 พ.ย.69 | ประกาศ 3 อำเภอ เป็นเขตภัยพิบัติน้ำท่วม จ.พัทลุง",
-      "link": "https://news.google.com/rss/articles/CBMiR0FVX3lxTFBISTlCX1lZZEZoNWVibDBObVlYMHVaejgtT29Sa0liOGJoSEQ5dkFWdDRSWHI5cjhOZ01CU24xRnRSUzZZR09R?oc=5",
-      "sourceName": "ช่อง 7",
-      "sourceTier": "mainstream-credible",
-      "publishedAt": "2026-11-25T01:26:07.000Z",
-      "provinces": [
-        "พัทลุง"
-      ],
-      "score": 26
-    },
-    {
       "id": "NEWS-M6AS8R",
-      "category": "social",
+      "category": "weather",
       "title": "ผู้ว่าฯ นราธิวาส รุดติดตามระดับน้ำที่ประตูระบายน้ำยะกัง ย้ำยังไม่วิกฤต พร้อมเร่งระบายหากแตะเกณฑ์เฝ้าระวัง",
       "summary": "ผู้ว่าฯ นราธิวาส รุดติดตามระดับน้ำที่ประตูระบายน้ำยะกัง ย้ำยังไม่วิกฤต พร้อมเร่งระบายหากแตะเกณฑ์เฝ้าระวัง",
       "link": "https://news.google.com/rss/articles/CBMib0FVX3lxTFBFcjI0cVQwTl9EbzBFWm1vTnRkZFVmNlBkSFFNNEpKQ3dDVm1sNkhnY3N0SmpWR19NekxoQ2dzbFBSeERyeUJiSjVvYUlpeFVBeF8tbzljS1B2Ym1oMHJQeUZMdzdaMXFoSU1yZ2lNMA?oc=5",
@@ -479,13 +593,13 @@
     }
   ],
   "stats": {
-    "totalChecked": 246,
-    "acceptedCount": 33,
-    "excludedDramaCount": 33,
-    "excludedSourceCount": 63,
+    "totalChecked": 319,
+    "acceptedCount": 41,
+    "excludedDramaCount": 43,
+    "excludedSourceCount": 105,
     "excludedStaleCount": 11,
-    "excludedOutOfAreaCount": 103,
-    "excludedDuplicateCount": 3
+    "excludedOutOfAreaCount": 112,
+    "excludedDuplicateCount": 7
   },
   "sourceMode": "static"
 }
