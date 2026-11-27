@@ -10,7 +10,6 @@ import {
   Menu,
   Newspaper,
   Settings,
-  Shield,
   X,
 } from 'lucide-react';
 import type { AppSettings } from '../types/incident';
@@ -139,7 +138,11 @@ export function W56Sidebar({
             title="กลับหน้าหลัก ศูนย์ข่าวกรองรายวัน"
           >
             <div className="w56-brand-emblem" aria-hidden="true">
-              <Shield size={20} />
+              <img
+                src="./wing56-logo.jpg"
+                alt=""
+                className="w56-brand-logo-img"
+              />
             </div>
             {!collapsed && (
               <div className="w56-brand-titles">

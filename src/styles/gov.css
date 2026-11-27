@@ -2935,16 +2935,25 @@ html.theme-dark .news-kpi-card.active {
 }
 
 .w56-brand-emblem {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #0c192c 0%, #1d5bb8 100%);
-  color: #38bdf8;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid var(--border-light);
+  padding: 2px;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(29, 91, 184, 0.25);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.14);
+}
+
+.w56-brand-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .w56-brand-titles {
@@ -3479,6 +3488,27 @@ html.theme-dark .w56-font-btn.active-primary {
 
 .footer-col {
   min-width: 0;
+}
+
+.footer-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.4rem;
+}
+
+.footer-emblem {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  background: #ffffff;
+  padding: 2px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
 .footer-sub {

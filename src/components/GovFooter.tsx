@@ -20,8 +20,19 @@ export function GovFooter({ settings, onChangeTab, onOpenModal }: GovFooterProps
         <div className="gov-footer-grid">
           {/* 1 & 2: Agency info & public official unit contact */}
           <div className="footer-col">
-            <p className="footer-title">{settings.systemTitle}</p>
-            <p className="footer-sub">{settings.agencyName}</p>
+            <div className="footer-brand-row">
+              <div className="footer-emblem" aria-hidden="true">
+                <img
+                  src="./wing56-logo.jpg"
+                  alt=""
+                  className="w56-brand-logo-img"
+                />
+              </div>
+              <div>
+                <p className="footer-title">{settings.systemTitle}</p>
+                <p className="footer-sub">{settings.agencyName}</p>
+              </div>
+            </div>
             <address className="footer-address">
               กองบิน 56 ตำบลโคกม่วง อำเภอคลองหอยโข่ง จังหวัดสงขลา 90115
               <br />
