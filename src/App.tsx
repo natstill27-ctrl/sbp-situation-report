@@ -9,10 +9,21 @@ import {
   type FontSizeMode,
 } from './components/GovHeader';
 import { IncidentFormPage } from './components/IncidentFormPage';
+import { StaffAuthModal } from './components/StaffAuthModal';
 import { DEFAULT_SETTINGS, buildSampleIncidents } from './data/defaults';
 import type { AppSettings, IncidentRecord, WatchAlertRecord } from './types/incident';
-import type { NewsCategoryId, NewsToIncidentDraft } from './types/news';
+import type {
+  DailyLogDraft,
+  DailyLogRecord,
+  NewsCategoryId,
+  NewsToIncidentDraft,
+} from './types/news';
 import { decodeConfigHash } from './utils/configShare';
+import {
+  deleteDailyLogFromGas,
+  pullDailyLogsFromGas,
+  sendDailyLogToGas,
+} from './utils/dailyLogGasSync';
 import {
   pullIncidentsFromGas,
   sendIncidentToGas,
@@ -21,11 +32,15 @@ import {
 } from './utils/gasSync';
 import {
   clearAllIncidents,
+  deleteDailyLog,
   deleteIncident,
   deleteWatchAlert,
+  loadDailyLogs,
   loadIncidents,
   loadSettings,
   loadWatchAlerts,
+  saveDailyLog,
+  saveDailyLogsBatch,
   saveIncident,
   saveIncidentsBatch,
   saveSettings,
@@ -35,6 +50,14 @@ import {
 
 const NewsHubPage = lazy(() =>
   import('./components/NewsHubPage').then((m) => ({ default: m.NewsHubPage }))
+);
+const UnifiedSituationMapPage = lazy(() =>
+  import('./components/UnifiedSituationMapPage').then((m) => ({
+    default: m.UnifiedSituationMapPage,
+  }))
+);
+const DailyLogPage = lazy(() =>
+  import('./components/DailyLogPage').then((m) => ({ default: m.DailyLogPage }))
 );
 const IpbDashboardPage = lazy(() =>
   import('./components/IpbDashboardPage').then((m) => ({ default: m.IpbDashboardPage }))
@@ -46,6 +69,20 @@ const SettingsPage = lazy(() =>
   import('./components/SettingsPage').then((m) => ({ default: m.SettingsPage }))
 );
 
+const STAFF_SESSION_KEY = 'w56_staff_session_v1';
+const STAFF_ONLY_TABS = new Set<ActiveTab>(['daily-log', 'entry', 'ipb', 'map-list', 'settings']);
+
+function readStaffSession(): { unlocked: boolean; pin: string } {
+  try {
+    const raw = sessionStorage.getItem(STAFF_SESSION_KEY);
+    if (!raw) return { unlocked: false, pin: '' };
+    const parsed = JSON.parse(raw) as { unlocked?: boolean; pin?: string };
+    return { unlocked: Boolean(parsed.unlocked), pin: String(parsed.pin || '') };
+  } catch {
+    return { unlocked: false, pin: '' };
+  }
+}
+
 function formatClockHHmm(date: Date): string {
   const hh = String(date.getHours()).padStart(2, '0');
   const mm = String(date.getMinutes()).padStart(2, '0');
@@ -56,11 +93,18 @@ export function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('news-hub');
   const [incidents, setIncidents] = useState<IncidentRecord[]>([]);
   const [watchAlerts, setWatchAlerts] = useState<WatchAlertRecord[]>([]);
+  const [dailyLogs, setDailyLogs] = useState<DailyLogRecord[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
 
+  const initialStaff = readStaffSession();
+  const [staffUnlocked, setStaffUnlocked] = useState<boolean>(initialStaff.unlocked);
+  const [staffPin, setStaffPin] = useState<string>(initialStaff.pin);
+  const [staffAuthModalOpen, setStaffAuthModalOpen] = useState<boolean>(false);
+
   const [editingIncident, setEditingIncident] = useState<IncidentRecord | null>(null);
   const [newsDraft, setNewsDraft] = useState<NewsToIncidentDraft | null>(null);
+  const [dailyLogDraft, setDailyLogDraft] = useState<DailyLogDraft | null>(null);
   const [lastSavedRecord, setLastSavedRecord] = useState<IncidentRecord | null>(null);
   const [lastPulledAt, setLastPulledAt] = useState<string | null>(null);
   const [startupNotice, setStartupNotice] = useState<string>('');
@@ -82,6 +126,7 @@ export function App() {
     }
   });
   const [complianceModal, setComplianceModal] = useState<ComplianceModalTab | null>(null);
+  const [activeNewsCategory, setActiveNewsCategory] = useState<'all' | NewsCategoryId>('all');
   const [requestedNewsCategory, setRequestedNewsCategory] = useState<'all' | NewsCategoryId | null>(
     null
   );
@@ -98,11 +143,13 @@ export function App() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const [loadedIncidents, loadedWatchAlerts, loadedSettings] = await Promise.all([
-        loadIncidents(),
-        loadWatchAlerts(),
-        loadSettings(),
-      ]);
+      const [loadedIncidents, loadedWatchAlerts, loadedDailyLogs, loadedSettings] =
+        await Promise.all([
+          loadIncidents(),
+          loadWatchAlerts(),
+          loadDailyLogs(),
+          loadSettings(),
+        ]);
       if (!active) return;
 
       let effectiveSettings = loadedSettings;
@@ -129,6 +176,7 @@ export function App() {
 
       setIncidents(loadedIncidents);
       setWatchAlerts(loadedWatchAlerts);
+      setDailyLogs(loadedDailyLogs);
       setSettings(effectiveSettings);
       setLoading(false);
 
@@ -151,13 +199,22 @@ export function App() {
           }
         }
       }
+
+      if (effectiveSettings.dailyLogGasUrl?.trim()) {
+        const dailyPull = await pullDailyLogsFromGas(effectiveSettings);
+        if (active && dailyPull.ok && dailyPull.records.length > 0) {
+          await saveDailyLogsBatch(dailyPull.records);
+          const reloadedLogs = await loadDailyLogs();
+          if (active) setDailyLogs(reloadedLogs);
+        }
+      }
     })();
     return () => {
       active = false;
     };
   }, []);
 
-  // Apply Wing 56 Security HUB Soft Light/Dark, Large Font & High Contrast modes
+  // Apply Wing 56 Security HUB Soft Light/Dark, 3-level Font & High Contrast modes
   useEffect(() => {
     document.documentElement.classList.toggle('theme-dark', themeDark);
     try {
@@ -200,6 +257,49 @@ export function App() {
     [incidents]
   );
 
+  const pendingDailyLogCount = useMemo(
+    () => dailyLogs.filter((d) => d.syncStatus !== 'synced').length,
+    [dailyLogs]
+  );
+
+  const effectiveTab: ActiveTab =
+    !staffUnlocked && STAFF_ONLY_TABS.has(activeTab) ? 'news-hub' : activeTab;
+
+  const handleSelectTab = (tab: ActiveTab) => {
+    if (!staffUnlocked && STAFF_ONLY_TABS.has(tab)) {
+      setStaffAuthModalOpen(true);
+      return;
+    }
+    setActiveTab(tab);
+  };
+
+  const handleUnlockStaffSuccess = (pin: string, goToSettings?: boolean) => {
+    setStaffUnlocked(true);
+    setStaffPin(pin);
+    setStaffAuthModalOpen(false);
+    try {
+      sessionStorage.setItem(STAFF_SESSION_KEY, JSON.stringify({ unlocked: true, pin }));
+    } catch {
+      // ignore session storage errors
+    }
+    if (goToSettings) {
+      setActiveTab('settings');
+    }
+  };
+
+  const handleLockStaffMode = () => {
+    setStaffUnlocked(false);
+    setStaffPin('');
+    try {
+      sessionStorage.removeItem(STAFF_SESSION_KEY);
+    } catch {
+      // ignore session storage errors
+    }
+    if (STAFF_ONLY_TABS.has(activeTab)) {
+      setActiveTab('news-hub');
+    }
+  };
+
   const upsertLocalIncident = (record: IncidentRecord) => {
     setIncidents((prev) => {
       const others = prev.filter((item) => item.id !== record.id);
@@ -211,8 +311,74 @@ export function App() {
     });
   };
 
+  const upsertLocalDailyLog = (record: DailyLogRecord) => {
+    setDailyLogs((prev) => {
+      const others = prev.filter((item) => item.id !== record.id);
+      return [record, ...others].sort(
+        (a, b) =>
+          new Date(b.occurredAt || b.createdAt).getTime() -
+          new Date(a.occurredAt || a.createdAt).getTime()
+      );
+    });
+  };
+
+  const handleSaveDailyLog = async (record: DailyLogRecord): Promise<DailyLogRecord> => {
+    if (record.reporter && record.reporter !== settings.defaultReporter) {
+      const nextSettings = { ...settings, defaultReporter: record.reporter };
+      setSettings(nextSettings);
+      void saveSettings(nextSettings);
+    }
+
+    let finalRecord: DailyLogRecord = { ...record };
+    await saveDailyLog(finalRecord);
+    upsertLocalDailyLog(finalRecord);
+
+    if (settings.dailyLogGasUrl?.trim() && staffPin.trim()) {
+      const syncRes = await sendDailyLogToGas(finalRecord, settings, staffPin);
+      finalRecord = {
+        ...finalRecord,
+        syncStatus: syncRes.ok ? 'synced' : 'failed',
+        syncError: syncRes.ok ? undefined : syncRes.message,
+      };
+      await saveDailyLog(finalRecord);
+      upsertLocalDailyLog(finalRecord);
+    }
+
+    return finalRecord;
+  };
+
+  const handleDeleteDailyLog = async (record: DailyLogRecord): Promise<void> => {
+    await deleteDailyLog(record.id);
+    setDailyLogs((prev) => prev.filter((item) => item.id !== record.id));
+    if (settings.dailyLogGasUrl?.trim() && staffPin.trim()) {
+      await deleteDailyLogFromGas(record.id, record.category, settings, staffPin);
+    }
+  };
+
+  const handleRetrySyncDailyLog = async (record: DailyLogRecord): Promise<void> => {
+    const syncRes = await sendDailyLogToGas(record, settings, staffPin);
+    const updated: DailyLogRecord = {
+      ...record,
+      syncStatus: syncRes.ok ? 'synced' : 'failed',
+      syncError: syncRes.ok ? undefined : syncRes.message,
+    };
+    await saveDailyLog(updated);
+    upsertLocalDailyLog(updated);
+  };
+
+  const handlePullDailyLogs = async (
+    overrideSettings?: AppSettings
+  ): Promise<{ ok: boolean; message: string }> => {
+    const targetSettings = overrideSettings || settings;
+    const res = await pullDailyLogsFromGas(targetSettings);
+    if (res.ok && res.records.length > 0) {
+      await saveDailyLogsBatch(res.records);
+      setDailyLogs(await loadDailyLogs());
+    }
+    return { ok: res.ok, message: res.message };
+  };
+
   const handleSaveIncident = async (record: IncidentRecord): Promise<IncidentRecord> => {
-    // Remember last reporter automatically for rapid sequential entries
     if (record.reporter && record.reporter !== settings.defaultReporter) {
       const nextSettings = { ...settings, defaultReporter: record.reporter };
       setSettings(nextSettings);
@@ -475,18 +641,25 @@ export function App() {
 
   const handleGoHome = (newsCategory: 'all' | NewsCategoryId = 'all') => {
     setRequestedNewsCategory(newsCategory);
+    setActiveNewsCategory(newsCategory);
     setActiveTab('news-hub');
   };
 
   return (
     <div className="w56-app-layout">
       <W56Sidebar
-        activeTab={activeTab}
-        onChangeTab={(tab) => setActiveTab(tab)}
+        activeTab={effectiveTab}
+        onChangeTab={handleSelectTab}
         onGoHome={() => handleGoHome('all')}
+        activeNewsCategory={activeNewsCategory}
+        onSelectNewsCategory={(cat) => handleGoHome(cat)}
         onOpenComplianceModal={(modal) => setComplianceModal(modal)}
+        staffUnlocked={staffUnlocked}
+        onRequestStaffUnlock={() => setStaffAuthModalOpen(true)}
+        onLockStaffMode={handleLockStaffMode}
         settings={settings}
         pendingSyncCount={pendingSyncCount}
+        pendingDailyLogCount={pendingDailyLogCount}
         totalIncidents={incidents.length}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
@@ -496,8 +669,9 @@ export function App() {
 
       <div className="w56-workspace-col">
         <GovHeader
-          activeTab={activeTab}
+          activeTab={effectiveTab}
           settings={settings}
+          staffUnlocked={staffUnlocked}
           pendingSyncCount={pendingSyncCount}
           lastPulledAt={lastPulledAt}
           themeDark={themeDark}
@@ -510,128 +684,177 @@ export function App() {
         />
 
         <main id="main-content" className="gov-main" tabIndex={-1}>
-          <div className={`gov-container ${activeTab === 'ipb' ? 'wide-dashboard' : ''}`}>
-          <GovBreadcrumb activeTab={activeTab} onGoHome={() => handleGoHome('all')} />
-          {startupNotice && (
-            <div className="inline-alert info startup-banner" role="status">
-              <span>{startupNotice}</span>
-              <button
-                type="button"
-                className="btn-xs btn-outline"
-                onClick={() => setStartupNotice('')}
+          <div
+            className={`gov-container ${
+              effectiveTab === 'ipb' || effectiveTab === 'unified-map' ? 'wide-dashboard' : ''
+            }`}
+          >
+            <GovBreadcrumb activeTab={effectiveTab} onGoHome={() => handleGoHome('all')} />
+            {startupNotice && (
+              <div className="inline-alert info startup-banner" role="status">
+                <span>{startupNotice}</span>
+                <button
+                  type="button"
+                  className="btn-xs btn-outline"
+                  onClick={() => setStartupNotice('')}
+                >
+                  ปิด
+                </button>
+              </div>
+            )}
+
+            {loading ? (
+              <div className="gov-card loading-card" role="status">
+                กำลังโหลดข้อมูลระบบ...
+              </div>
+            ) : (
+              <Suspense
+                fallback={
+                  <div className="gov-card loading-card" role="status">
+                    กำลังโหลดหน้าจอ...
+                  </div>
+                }
               >
-                ปิด
-              </button>
-            </div>
-          )}
+                {effectiveTab === 'news-hub' && (
+                  <NewsHubPage
+                    settings={settings}
+                    staffUnlocked={staffUnlocked}
+                    requestedCategory={requestedNewsCategory}
+                    onConsumeRequestedCategory={() => setRequestedNewsCategory(null)}
+                    onCategoryChange={setActiveNewsCategory}
+                    onImportToDailyLog={(draft) => {
+                      setDailyLogDraft(draft);
+                      setActiveTab('daily-log');
+                    }}
+                    onImportToIncident={(draft) => {
+                      setEditingIncident(null);
+                      setNewsDraft(draft);
+                      setActiveTab('entry');
+                    }}
+                  />
+                )}
 
-          {loading ? (
-            <div className="gov-card loading-card" role="status">
-              กำลังโหลดข้อมูลระบบ...
-            </div>
-          ) : (
-            <Suspense
-              fallback={
-                <div className="gov-card loading-card" role="status">
-                  กำลังโหลดหน้าจอ...
-                </div>
-              }
-            >
-              {activeTab === 'news-hub' && (
-                <NewsHubPage
-                  settings={settings}
-                  requestedCategory={requestedNewsCategory}
-                  onConsumeRequestedCategory={() => setRequestedNewsCategory(null)}
-                  onImportToIncident={(draft) => {
-                    setEditingIncident(null);
-                    setNewsDraft(draft);
-                    setActiveTab('entry');
-                  }}
-                />
-              )}
+                {effectiveTab === 'unified-map' && (
+                  <UnifiedSituationMapPage
+                    settings={settings}
+                    dailyLogs={dailyLogs}
+                    incidents={incidents}
+                    watchAlerts={watchAlerts}
+                    staffUnlocked={staffUnlocked}
+                    onRefreshDailyLogs={async () => {
+                      await handlePullDailyLogs();
+                    }}
+                    onOpenDailyLogForm={() => handleSelectTab('daily-log')}
+                  />
+                )}
 
-              {activeTab === 'entry' && (
-                <IncidentFormPage
-                  settings={settings}
-                  incidents={incidents}
-                  editingIncident={editingIncident}
-                  onCancelEdit={() => setEditingIncident(null)}
-                  newsDraft={newsDraft}
-                  onClearNewsDraft={() => setNewsDraft(null)}
-                  onSaveIncident={handleSaveIncident}
-                  onSaveIncidentBatch={handleSaveIncidentBatch}
-                  lastSavedRecord={lastSavedRecord}
-                  watchAlerts={watchAlerts}
-                  onSaveWatchAlert={handleSaveWatchAlert}
-                  onSaveWatchAlertsBatch={handleSaveWatchAlertsBatch}
-                  onQuickUpdateIncidentBatch={handleQuickUpdateBatch}
-                  onPullFromGas={() => handlePullFromGas()}
-                  onDeleteWatchAlert={handleDeleteWatchAlert}
-                />
-              )}
+                {effectiveTab === 'daily-log' && staffUnlocked && (
+                  <DailyLogPage
+                    settings={settings}
+                    dailyLogs={dailyLogs}
+                    staffPin={staffPin}
+                    draft={dailyLogDraft}
+                    onClearDraft={() => setDailyLogDraft(null)}
+                    onSaveDailyLog={handleSaveDailyLog}
+                    onDeleteDailyLog={handleDeleteDailyLog}
+                    onRetrySyncDailyLog={handleRetrySyncDailyLog}
+                    onPullDailyLogs={() => handlePullDailyLogs()}
+                  />
+                )}
 
-              {activeTab === 'ipb' && (
-                <IpbDashboardPage
-                  incidents={incidents}
-                  watchAlerts={watchAlerts}
-                  categories={settings.categories}
-                  settings={settings}
-                  lastPulledAt={lastPulledAt}
-                  onLoadSamples={handleLoadSamples}
-                  hasGasUrl={hasGasUrl}
-                  onPullFromGas={() => handlePullFromGas()}
-                />
-              )}
+                {effectiveTab === 'entry' && staffUnlocked && (
+                  <IncidentFormPage
+                    settings={settings}
+                    incidents={incidents}
+                    editingIncident={editingIncident}
+                    onCancelEdit={() => setEditingIncident(null)}
+                    newsDraft={newsDraft}
+                    onClearNewsDraft={() => setNewsDraft(null)}
+                    onSaveIncident={handleSaveIncident}
+                    onSaveIncidentBatch={handleSaveIncidentBatch}
+                    lastSavedRecord={lastSavedRecord}
+                    watchAlerts={watchAlerts}
+                    onSaveWatchAlert={handleSaveWatchAlert}
+                    onSaveWatchAlertsBatch={handleSaveWatchAlertsBatch}
+                    onQuickUpdateIncidentBatch={handleQuickUpdateBatch}
+                    onPullFromGas={() => handlePullFromGas()}
+                    onDeleteWatchAlert={handleDeleteWatchAlert}
+                  />
+                )}
 
-              {activeTab === 'map-list' && (
-                <MapAndListPage
-                  incidents={incidents}
-                  settings={settings}
-                  onEditIncident={(rec) => {
-                    setEditingIncident(rec);
-                    setActiveTab('entry');
-                  }}
-                  onDeleteIncident={handleDeleteIncident}
-                  onRetrySyncOne={handleRetrySyncOne}
-                  onRetrySyncAll={handleRetrySyncAll}
-                  onLoadSamples={handleLoadSamples}
-                  onClearAll={handleClearAll}
-                  onPullFromGas={() => handlePullFromGas()}
-                  onQuickUpdateIncident={handleQuickUpdateIncident}
-                  onQuickUpdateBatch={handleQuickUpdateBatch}
-                />
-              )}
+                {effectiveTab === 'ipb' && staffUnlocked && (
+                  <IpbDashboardPage
+                    incidents={incidents}
+                    watchAlerts={watchAlerts}
+                    categories={settings.categories}
+                    settings={settings}
+                    lastPulledAt={lastPulledAt}
+                    onLoadSamples={handleLoadSamples}
+                    hasGasUrl={hasGasUrl}
+                    onPullFromGas={() => handlePullFromGas()}
+                  />
+                )}
 
-              {activeTab === 'settings' && (
-                <SettingsPage
-                  settings={settings}
-                  onSaveSettings={handleSaveSettings}
-                  onPullFromGas={handlePullFromGas}
-                />
-              )}
-            </Suspense>
-          )}
+                {effectiveTab === 'map-list' && staffUnlocked && (
+                  <MapAndListPage
+                    incidents={incidents}
+                    settings={settings}
+                    onEditIncident={(rec) => {
+                      setEditingIncident(rec);
+                      setActiveTab('entry');
+                    }}
+                    onDeleteIncident={handleDeleteIncident}
+                    onRetrySyncOne={handleRetrySyncOne}
+                    onRetrySyncAll={handleRetrySyncAll}
+                    onLoadSamples={handleLoadSamples}
+                    onClearAll={handleClearAll}
+                    onPullFromGas={() => handlePullFromGas()}
+                    onQuickUpdateIncident={handleQuickUpdateIncident}
+                    onQuickUpdateBatch={handleQuickUpdateBatch}
+                  />
+                )}
+
+                {effectiveTab === 'settings' && staffUnlocked && (
+                  <SettingsPage
+                    settings={settings}
+                    onSaveSettings={handleSaveSettings}
+                    onPullFromGas={handlePullFromGas}
+                    onPullDailyLogs={handlePullDailyLogs}
+                  />
+                )}
+              </Suspense>
+            )}
           </div>
         </main>
 
         <GovFooter
           settings={settings}
-          onChangeTab={(tab) => setActiveTab(tab)}
+          staffUnlocked={staffUnlocked}
+          onChangeTab={handleSelectTab}
           onOpenModal={(tab) => setComplianceModal(tab)}
         />
 
         <GovComplianceModal
           activeModal={complianceModal}
+          staffUnlocked={staffUnlocked}
           onChangeModal={(tab) => setComplianceModal(tab)}
           onClose={() => setComplianceModal(null)}
           onNavigateTab={(tab, newsCategory) => {
             if (tab === 'news-hub') {
               handleGoHome(newsCategory || 'all');
             } else {
-              setActiveTab(tab);
+              handleSelectTab(tab);
             }
             setComplianceModal(null);
           }}
+        />
+
+        <StaffAuthModal
+          open={staffAuthModalOpen}
+          dailyLogGasUrl={settings.dailyLogGasUrl || ''}
+          hasLegacyGasUrl={Boolean((settings.gasFetchUrl || settings.gasWebhookUrl).trim())}
+          onClose={() => setStaffAuthModalOpen(false)}
+          onUnlockSuccess={handleUnlockStaffSuccess}
         />
       </div>
     </div>

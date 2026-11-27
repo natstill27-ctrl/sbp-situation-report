@@ -87,3 +87,43 @@ export interface NiaBriefSummary {
   paragraph: string;
   sourceCode: string;
 }
+
+export type DailyLogOrigin = 'news' | 'manual';
+
+export interface DailyLogRecord {
+  id: string;
+  occurredAt: string; // YYYY-MM-DDTHH:mm
+  category: NewsCategoryId;
+  title: string;
+  summary: string;
+  province: string;
+  district: string;
+  subdistrict: string;
+  lat: number | null;
+  lng: number | null;
+  sourceName: string;
+  sourceLink?: string;
+  reliabilityCode: string;
+  entryOrigin: DailyLogOrigin;
+  analystNote?: string;
+  reporter: string;
+  createdAt: string;
+  updatedAt: string;
+  syncStatus: 'synced' | 'pending' | 'failed';
+  syncError?: string;
+  newsId?: string;
+}
+
+export interface DailyLogDraft {
+  newsId?: string;
+  category: NewsCategoryId;
+  occurredAt: string;
+  title: string;
+  summary: string;
+  province: string;
+  district: string;
+  sourceName: string;
+  sourceLink?: string;
+  reliabilityCode: string;
+  entryOrigin: DailyLogOrigin;
+}

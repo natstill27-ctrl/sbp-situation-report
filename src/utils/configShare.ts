@@ -10,6 +10,8 @@ interface CompactConfigPayload {
   a?: boolean; // autoPullOnLoad
   s?: string; // systemTitle
   n?: string; // agencyName
+  dl?: string; // dailyLogGasUrl
+  dm?: string; // dailyLogMasterSheetName
 }
 
 function toBase64Url(text: string): string {
@@ -49,6 +51,8 @@ export function encodeConfigHash(settings: AppSettings, baseUrl?: string): strin
     a: settings.autoPullOnLoad,
     s: settings.systemTitle.trim(),
     n: settings.agencyName.trim(),
+    dl: (settings.dailyLogGasUrl || '').trim(),
+    dm: (settings.dailyLogMasterSheetName || '').trim(),
   };
 
   const base =
@@ -73,6 +77,7 @@ export function decodeConfigHash(hash: string): Partial<AppSettings> | null {
 
     if (parsed.w && !isSafeHttpsUrl(parsed.w)) return null;
     if (parsed.f && !isSafeHttpsUrl(parsed.f)) return null;
+    if (parsed.dl && !isSafeHttpsUrl(parsed.dl)) return null;
 
     const result: Partial<AppSettings> = {};
     if (typeof parsed.w === 'string') result.gasWebhookUrl = parsed.w.trim();
@@ -84,6 +89,10 @@ export function decodeConfigHash(hash: string): Partial<AppSettings> | null {
     if (typeof parsed.a === 'boolean') result.autoPullOnLoad = parsed.a;
     if (typeof parsed.s === 'string' && parsed.s.trim()) result.systemTitle = parsed.s.trim();
     if (typeof parsed.n === 'string' && parsed.n.trim()) result.agencyName = parsed.n.trim();
+    if (typeof parsed.dl === 'string') result.dailyLogGasUrl = parsed.dl.trim();
+    if (typeof parsed.dm === 'string' && parsed.dm.trim()) {
+      result.dailyLogMasterSheetName = parsed.dm.trim();
+    }
 
     return Object.keys(result).length > 0 ? result : null;
   } catch {

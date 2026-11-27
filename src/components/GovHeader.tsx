@@ -5,31 +5,48 @@ import {
   ChevronRight,
   ClipboardList,
   FilePlus2,
+  Globe2,
   Home,
+  Lock,
   Map as MapIcon,
   Menu,
   Newspaper,
+  NotebookPen,
   Settings,
+  Unlock,
   X,
 } from 'lucide-react';
 import type { AppSettings } from '../types/incident';
+import type { NewsCategoryId } from '../types/news';
+import { NEWS_CATEGORIES } from '../utils/newsCurator';
 import { formatThaiDateTime } from '../utils/thaiDate';
 import type { ComplianceModalTab } from './GovComplianceModal';
 
-export type ActiveTab = 'news-hub' | 'entry' | 'ipb' | 'map-list' | 'settings';
+export type ActiveTab =
+  | 'news-hub'
+  | 'unified-map'
+  | 'daily-log'
+  | 'entry'
+  | 'ipb'
+  | 'map-list'
+  | 'settings';
 export type FontSizeMode = 'sm' | 'md' | 'lg';
 
 export const TAB_BREADCRUMBS: Record<ActiveTab, { group: string; title: string }> = {
-  'news-hub': { group: 'ศูนย์ข่าวสาร', title: 'ศูนย์ข่าวกรองรายวัน' },
-  entry: { group: 'ปฏิบัติการ IPB', title: 'บันทึกเหตุการณ์' },
-  ipb: { group: 'ปฏิบัติการ IPB', title: 'แดชบอร์ด & แผนที่ IPB' },
-  'map-list': { group: 'ปฏิบัติการ IPB', title: 'คลังรายการเหตุการณ์' },
-  settings: { group: 'ระบบ', title: 'ตั้งค่า & เชื่อมระบบเดิม' },
+  'news-hub': { group: 'ศูนย์ข่าวสาร & สถานการณ์', title: 'ศูนย์ข่าวกรองรายวัน' },
+  'unified-map': { group: 'ศูนย์ข่าวสาร & สถานการณ์', title: 'แผนที่สรุปสถานการณ์รวม' },
+  'daily-log': { group: 'ปฏิบัติการ ผขว. (เจ้าหน้าที่)', title: 'บันทึกประจำวัน (ชีทแผนก)' },
+  entry: { group: 'ปฏิบัติการ ผขว. (เจ้าหน้าที่)', title: 'บันทึกเหตุการณ์ IPB' },
+  ipb: { group: 'ปฏิบัติการ ผขว. (เจ้าหน้าที่)', title: 'แดชบอร์ด & แผนที่ IPB' },
+  'map-list': { group: 'ปฏิบัติการ ผขว. (เจ้าหน้าที่)', title: 'คลังรายการเหตุการณ์' },
+  settings: { group: 'ระบบ', title: 'ตั้งค่า & เชื่อมระบบ' },
 };
 
 const TOPBAR_TITLES: Record<ActiveTab, string> = {
   'news-hub': 'ศูนย์ข่าวกรองรายวัน (7 หมวดข่าว • 7 จังหวัดภาคใต้ตอนล่าง)',
-  entry: 'บันทึกเหตุการณ์ & จับพิกัดอัตโนมัติ',
+  'unified-map': 'แผนที่สรุปสถานการณ์รวม 7 จังหวัด (การประชุม บน.56)',
+  'daily-log': 'บันทึกเหตุการณ์ประจำวันของแผนก (ซิงก์ชีทแยก 7 หมวดอัตโนมัติ)',
+  entry: 'บันทึกเหตุการณ์ IPB & จับพิกัดอัตโนมัติ',
   ipb: 'แดชบอร์ด & แผนที่วิเคราะห์ IPB',
   'map-list': 'คลังรายการเหตุการณ์ & ส่งออกข้อมูล',
   settings: 'ตั้งค่าระบบ & เชื่อมต่อ Google Apps Script',
@@ -39,9 +56,15 @@ interface SidebarProps {
   activeTab: ActiveTab;
   onChangeTab: (tab: ActiveTab) => void;
   onGoHome: () => void;
+  activeNewsCategory?: 'all' | NewsCategoryId;
+  onSelectNewsCategory?: (category: 'all' | NewsCategoryId) => void;
   onOpenComplianceModal?: (modal: ComplianceModalTab) => void;
+  staffUnlocked: boolean;
+  onRequestStaffUnlock: () => void;
+  onLockStaffMode: () => void;
   settings: AppSettings;
   pendingSyncCount: number;
+  pendingDailyLogCount?: number;
   totalIncidents: number;
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -53,9 +76,15 @@ export function W56Sidebar({
   activeTab,
   onChangeTab,
   onGoHome,
+  activeNewsCategory = 'all',
+  onSelectNewsCategory,
   onOpenComplianceModal,
+  staffUnlocked,
+  onRequestStaffUnlock,
+  onLockStaffMode,
   settings,
   pendingSyncCount,
+  pendingDailyLogCount = 0,
   totalIncidents,
   collapsed,
   onToggleCollapse,
@@ -75,37 +104,52 @@ export function W56Sidebar({
   }> = [
     {
       id: 'intel',
-      label: 'ศูนย์ข่าวสาร',
-      items: [{ id: 'news-hub', label: 'ศูนย์ข่าวกรองรายวัน', icon: Newspaper }],
-    },
-    {
-      id: 'ipb',
-      label: 'ปฏิบัติการ IPB',
+      label: 'ศูนย์ข่าวสาร & สถานการณ์',
       items: [
-        { id: 'entry', label: 'บันทึกเหตุการณ์', icon: FilePlus2 },
-        { id: 'ipb', label: 'แดชบอร์ด & แผนที่ IPB', icon: BarChart3 },
-        {
-          id: 'map-list',
-          label: 'คลังรายการเหตุการณ์',
-          icon: ClipboardList,
-          badge: totalIncidents > 0 ? totalIncidents : undefined,
-        },
-      ],
-    },
-    {
-      id: 'system',
-      label: 'ระบบ',
-      items: [
-        {
-          id: 'settings',
-          label: 'ตั้งค่า & เชื่อมระบบเดิม',
-          icon: Settings,
-          badge: pendingSyncCount > 0 ? pendingSyncCount : undefined,
-          warnBadge: pendingSyncCount > 0,
-        },
+        { id: 'news-hub', label: 'ศูนย์ข่าวกรองรายวัน', icon: Newspaper },
+        { id: 'unified-map', label: 'แผนที่สรุปสถานการณ์รวม', icon: Globe2 },
       ],
     },
   ];
+
+  if (staffUnlocked) {
+    groups.push(
+      {
+        id: 'ipb',
+        label: 'ปฏิบัติการ ผขว. (เจ้าหน้าที่)',
+        items: [
+          {
+            id: 'daily-log',
+            label: 'บันทึกประจำวัน (ชีทแผนก)',
+            icon: NotebookPen,
+            badge: pendingDailyLogCount > 0 ? pendingDailyLogCount : undefined,
+            warnBadge: pendingDailyLogCount > 0,
+          },
+          { id: 'entry', label: 'บันทึกเหตุการณ์ IPB', icon: FilePlus2 },
+          { id: 'ipb', label: 'แดชบอร์ด & แผนที่ IPB', icon: BarChart3 },
+          {
+            id: 'map-list',
+            label: 'คลังรายการเหตุการณ์',
+            icon: ClipboardList,
+            badge: totalIncidents > 0 ? totalIncidents : undefined,
+          },
+        ],
+      },
+      {
+        id: 'system',
+        label: 'ระบบ',
+        items: [
+          {
+            id: 'settings',
+            label: 'ตั้งค่า & เชื่อมระบบ',
+            icon: Settings,
+            badge: pendingSyncCount > 0 ? pendingSyncCount : undefined,
+            warnBadge: pendingSyncCount > 0,
+          },
+        ],
+      }
+    );
+  }
 
   const handleSelect = (tab: ActiveTab) => {
     onChangeTab(tab);
@@ -174,24 +218,52 @@ export function W56Sidebar({
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
                   return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={`w56-nav-item ${isActive ? 'active' : ''}`}
-                      aria-current={isActive ? 'page' : undefined}
-                      aria-label={collapsed ? item.label : undefined}
-                      title={collapsed ? item.label : undefined}
-                      onClick={() => handleSelect(item.id)}
-                    >
-                      {isActive && <span className="w56-nav-indicator" aria-hidden="true" />}
-                      <Icon size={17} className="w56-nav-icon" aria-hidden="true" />
-                      {!collapsed && <span className="w56-nav-text">{item.label}</span>}
-                      {!collapsed && item.badge !== undefined && (
-                        <span className={`w56-nav-badge ${item.warnBadge ? 'warn' : ''}`}>
-                          {item.badge}
-                        </span>
+                    <div key={item.id}>
+                      <button
+                        type="button"
+                        className={`w56-nav-item ${isActive ? 'active' : ''}`}
+                        aria-current={isActive ? 'page' : undefined}
+                        aria-label={collapsed ? item.label : undefined}
+                        title={collapsed ? item.label : undefined}
+                        onClick={() => handleSelect(item.id)}
+                      >
+                        {isActive && <span className="w56-nav-indicator" aria-hidden="true" />}
+                        <Icon size={17} className="w56-nav-icon" aria-hidden="true" />
+                        {!collapsed && <span className="w56-nav-text">{item.label}</span>}
+                        {!collapsed && item.badge !== undefined && (
+                          <span className={`w56-nav-badge ${item.warnBadge ? 'warn' : ''}`}>
+                            {item.badge}
+                          </span>
+                        )}
+                      </button>
+
+                      {item.id === 'news-hub' && !collapsed && onSelectNewsCategory && (
+                        <div className="w56-subcat-list" role="group" aria-label="หมวดข่าวกรอง 7 หมวด">
+                          {NEWS_CATEGORIES.map((cat) => {
+                            const catActive =
+                              activeTab === 'news-hub' && activeNewsCategory === cat.id;
+                            return (
+                              <button
+                                key={cat.id}
+                                type="button"
+                                className={`w56-subcat-item ${catActive ? 'active' : ''}`}
+                                onClick={() => {
+                                  onSelectNewsCategory(catActive ? 'all' : cat.id);
+                                  onCloseMobile();
+                                }}
+                              >
+                                <span
+                                  className="w56-subcat-dot"
+                                  style={{ backgroundColor: cat.color }}
+                                  aria-hidden="true"
+                                />
+                                <span>{cat.shortLabel}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -238,6 +310,40 @@ export function W56Sidebar({
           )}
           <button
             type="button"
+            className={`w56-staff-lock-btn ${staffUnlocked ? 'unlocked' : ''}`}
+            onClick={() => {
+              if (staffUnlocked) {
+                onLockStaffMode();
+              } else {
+                onRequestStaffUnlock();
+              }
+              onCloseMobile();
+            }}
+            aria-label={
+              staffUnlocked
+                ? 'ล็อกและซ่อนเมนูเจ้าหน้าที่ ผขว.'
+                : 'ปลดล็อกโหมดเจ้าหน้าที่ ผขว.'
+            }
+            title={
+              staffUnlocked
+                ? 'ล็อกโหมดเจ้าหน้าที่ ผขว.'
+                : 'สำหรับเจ้าหน้าที่ ผขว. (ต้องยืนยัน PIN)'
+            }
+          >
+            {staffUnlocked ? (
+              <Unlock size={14} aria-hidden="true" />
+            ) : (
+              <Lock size={14} aria-hidden="true" />
+            )}
+            {!collapsed && (
+              <span>
+                {staffUnlocked ? 'โหมดเจ้าหน้าที่ (เปิด) • กดเพื่อล็อก' : 'สำหรับเจ้าหน้าที่ ผขว.'}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
             className="w56-collapse-btn"
             onClick={onToggleCollapse}
             aria-expanded={!collapsed}
@@ -260,6 +366,7 @@ export function W56Sidebar({
 interface GovHeaderProps {
   activeTab: ActiveTab;
   settings: AppSettings;
+  staffUnlocked: boolean;
   pendingSyncCount: number;
   lastPulledAt?: string | null;
   themeDark: boolean;
@@ -274,6 +381,7 @@ interface GovHeaderProps {
 export function GovHeader({
   activeTab,
   settings,
+  staffUnlocked,
   pendingSyncCount,
   lastPulledAt,
   themeDark,
@@ -363,24 +471,30 @@ export function GovHeader({
           <span>{highContrast ? 'โหมดปกติ' : 'ความเปรียบต่างสูง'}</span>
         </button>
 
-        <span
-          className="w56-status-pill"
-          title={
-            settings.gasWebhookUrl
-              ? `เชื่อมต่อ GAS พร้อมใช้${lastPulledAt ? ` • ซิงก์ล่าสุด ${lastPulledAt} น.` : ''}`
-              : 'ยังไม่ตั้งค่า Webhook Google Apps Script'
-          }
-        >
-          <span className={`sync-dot ${settings.gasWebhookUrl ? 'online' : 'unconfigured'}`} />
-          <span className="hide-md">
-            {settings.gasWebhookUrl
-              ? pendingSyncCount > 0
-                ? `รอซิงก์ ${pendingSyncCount}`
-                : 'GAS พร้อมใช้'
-              : 'โหมดออฟไลน์'}
-            {lastPulledAt ? ` • ${lastPulledAt}` : ''}
+        {staffUnlocked && (
+          <span
+            className="w56-status-pill"
+            title={
+              settings.gasWebhookUrl || settings.dailyLogGasUrl
+                ? `เชื่อมต่อ GAS พร้อมใช้${lastPulledAt ? ` • ซิงก์ล่าสุด ${lastPulledAt} น.` : ''}`
+                : 'ยังไม่ตั้งค่า Webhook Google Apps Script'
+            }
+          >
+            <span
+              className={`sync-dot ${
+                settings.gasWebhookUrl || settings.dailyLogGasUrl ? 'online' : 'unconfigured'
+              }`}
+            />
+            <span className="hide-md">
+              {settings.gasWebhookUrl || settings.dailyLogGasUrl
+                ? pendingSyncCount > 0
+                  ? `รอซิงก์ ${pendingSyncCount}`
+                  : 'GAS พร้อมใช้'
+                : 'โหมดออฟไลน์'}
+              {lastPulledAt ? ` • ${lastPulledAt}` : ''}
+            </span>
           </span>
-        </span>
+        )}
 
         <span className="w56-date-pill hide-sm" aria-label="วันที่ปัจจุบัน">
           <span className="w56-date-dot" aria-hidden="true" />

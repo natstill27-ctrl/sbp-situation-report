@@ -10,6 +10,7 @@ import {
   Filter,
   ListChecks,
   Newspaper,
+  NotebookPen,
   RefreshCw,
   Rss,
   Search,
@@ -18,6 +19,7 @@ import {
 import type { AppSettings } from '../types/incident';
 import type {
   CuratedNewsItem,
+  DailyLogDraft,
   DailyNewsFeed,
   NewsCategoryId,
   NewsToIncidentDraft,
@@ -42,8 +44,11 @@ import { formatThaiDateTime } from '../utils/thaiDate';
 
 interface NewsHubPageProps {
   settings: AppSettings;
+  staffUnlocked?: boolean;
   requestedCategory?: 'all' | NewsCategoryId | null;
   onConsumeRequestedCategory?: () => void;
+  onCategoryChange?: (category: 'all' | NewsCategoryId) => void;
+  onImportToDailyLog?: (draft: DailyLogDraft) => void;
   onImportToIncident: (draft: NewsToIncidentDraft) => void;
 }
 
@@ -60,8 +65,11 @@ function formatRelativeAge(isoString: string, nowMs: number): string {
 
 export function NewsHubPage({
   settings,
+  staffUnlocked = false,
   requestedCategory,
   onConsumeRequestedCategory,
+  onCategoryChange,
+  onImportToDailyLog,
   onImportToIncident,
 }: NewsHubPageProps) {
   const [feed, setFeed] = useState<DailyNewsFeed | null>(null);
@@ -89,6 +97,10 @@ export function NewsHubPage({
       onConsumeRequestedCategory?.();
     }
   }, [requestedCategory, onConsumeRequestedCategory]);
+
+  useEffect(() => {
+    onCategoryChange?.(categoryFilter);
+  }, [categoryFilter, onCategoryChange]);
 
   const loadNews = async (opts: { preferLiveGas?: boolean; bustCache?: boolean } = {}) => {
     setLoadError('');
@@ -176,6 +188,26 @@ export function NewsHubPage({
       return true;
     });
   }, [itemsInWindow, categoryFilter, isocOnly, provinceFilter, tierFilter, searchQuery]);
+
+  const handleImportDailyLog = (item: CuratedNewsItem) => {
+    if (!onImportToDailyLog) return;
+    const matchedProvince = item.provinces.find((p) => provinces.includes(p)) || '';
+    const nia = buildNiaProseSummary(item);
+    const reliability = getSourceReliabilityCode(item.sourceTier);
+    onImportToDailyLog({
+      newsId: item.id,
+      category: item.category,
+      occurredAt: item.publishedAt,
+      title: nia.headline,
+      summary: nia.paragraph,
+      province: matchedProvince,
+      district: item.districtHint || '',
+      sourceName: item.sourceName,
+      sourceLink: item.link,
+      reliabilityCode: reliability.code,
+      entryOrigin: 'news',
+    });
+  };
 
   const handleImport = (item: CuratedNewsItem) => {
     const matchedProvince = item.provinces.find((p) => provinces.includes(p)) || '';
@@ -529,14 +561,28 @@ export function NewsHubPage({
                       <span>{copiedNewsId === item.id ? 'คัดลอกแล้ว' : 'คัดลอกสรุปข่าว'}</span>
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-primary"
-                    onClick={() => handleImport(item)}
-                  >
-                    <FilePlus2 size={14} aria-hidden="true" />
-                    <span>นำเข้าบันทึกเหตุการณ์</span>
-                  </button>
+                  {staffUnlocked && (
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      {onImportToDailyLog && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          onClick={() => handleImportDailyLog(item)}
+                        >
+                          <NotebookPen size={14} aria-hidden="true" />
+                          <span>สรุปเข้าชีทประจำวัน</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline"
+                        onClick={() => handleImport(item)}
+                      >
+                        <FilePlus2 size={14} aria-hidden="true" />
+                        <span>ส่งเข้า IPB</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </article>
             );

@@ -50,6 +50,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   legacyIncidentType: 'สถานการณ์ 3 จชต.',
   legacySendLine: false,
   autoPullOnLoad: true,
+  dailyLogGasUrl: '',
+  dailyLogMasterSheetName: 'รวมข่าวกรองประจำวัน',
 };
 
 /**

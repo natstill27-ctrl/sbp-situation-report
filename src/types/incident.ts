@@ -119,6 +119,8 @@ export interface AppSettings {
   legacyIncidentType: string;
   legacySendLine: boolean;
   autoPullOnLoad: boolean;
+  dailyLogGasUrl?: string;
+  dailyLogMasterSheetName?: string;
 }
 
 export type WatchAlertLevel = 'critical' | 'high' | 'medium';

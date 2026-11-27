@@ -6,11 +6,12 @@ import type { ActiveTab } from './GovHeader';
 
 interface GovFooterProps {
   settings: AppSettings;
+  staffUnlocked: boolean;
   onChangeTab: (tab: ActiveTab) => void;
   onOpenModal: (tab: ComplianceModalTab) => void;
 }
 
-export function GovFooter({ settings, onChangeTab, onOpenModal }: GovFooterProps) {
+export function GovFooter({ settings, staffUnlocked, onChangeTab, onOpenModal }: GovFooterProps) {
   const { districts, subdistricts } = getBoundaryCountSummary();
   const thaiYear = new Date().getFullYear() + 543;
 
@@ -53,25 +54,59 @@ export function GovFooter({ settings, onChangeTab, onOpenModal }: GovFooterProps
                 </button>
               </li>
               <li>
-                <button type="button" className="footer-link" onClick={() => onChangeTab('entry')}>
-                  บันทึกเหตุการณ์ &amp; จับพิกัดอัตโนมัติ
+                <button
+                  type="button"
+                  className="footer-link"
+                  onClick={() => onChangeTab('unified-map')}
+                >
+                  แผนที่สรุปสถานการณ์รวม 7 จังหวัด
                 </button>
               </li>
-              <li>
-                <button type="button" className="footer-link" onClick={() => onChangeTab('ipb')}>
-                  แดชบอร์ด &amp; แผนที่วิเคราะห์ IPB
-                </button>
-              </li>
-              <li>
-                <button type="button" className="footer-link" onClick={() => onChangeTab('map-list')}>
-                  คลังรายการเหตุการณ์ &amp; ส่งออกข้อมูล
-                </button>
-              </li>
-              <li>
-                <button type="button" className="footer-link" onClick={() => onChangeTab('settings')}>
-                  ตั้งค่าระบบ &amp; เชื่อมระบบเดิม
-                </button>
-              </li>
+              {staffUnlocked && (
+                <>
+                  <li>
+                    <button
+                      type="button"
+                      className="footer-link"
+                      onClick={() => onChangeTab('daily-log')}
+                    >
+                      บันทึกเหตุการณ์ประจำวัน (ชีทแผนก)
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      className="footer-link"
+                      onClick={() => onChangeTab('entry')}
+                    >
+                      บันทึกเหตุการณ์ IPB &amp; จับพิกัดอัตโนมัติ
+                    </button>
+                  </li>
+                  <li>
+                    <button type="button" className="footer-link" onClick={() => onChangeTab('ipb')}>
+                      แดชบอร์ด &amp; แผนที่วิเคราะห์ IPB
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      className="footer-link"
+                      onClick={() => onChangeTab('map-list')}
+                    >
+                      คลังรายการเหตุการณ์ &amp; ส่งออกข้อมูล
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      className="footer-link"
+                      onClick={() => onChangeTab('settings')}
+                    >
+                      ตั้งค่าระบบ &amp; เชื่อมระบบ
+                    </button>
+                  </li>
+                </>
+              )}
               <li className="footer-util-pair">
                 <button
                   type="button"

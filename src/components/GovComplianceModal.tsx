@@ -22,6 +22,7 @@ export type ComplianceModalTab =
 
 interface GovComplianceModalProps {
   activeModal: ComplianceModalTab | null;
+  staffUnlocked: boolean;
   onChangeModal: (tab: ComplianceModalTab) => void;
   onClose: () => void;
   onNavigateTab: (tab: ActiveTab, newsCategory?: 'all' | NewsCategoryId) => void;
@@ -37,6 +38,7 @@ const MODAL_TABS: Array<{ id: ComplianceModalTab; label: string; icon: typeof Ma
 
 export function GovComplianceModal({
   activeModal,
+  staffUnlocked,
   onChangeModal,
   onClose,
   onNavigateTab,
@@ -153,49 +155,75 @@ export function GovComplianceModal({
                 </div>
 
                 <div className="gov-sitemap-card">
-                  <h3>2. ปฏิบัติการ IPB และฐานข้อมูลพื้นที่</h3>
+                  <h3>2. แผนที่และปฏิบัติการข่าวกรอง</h3>
                   <ul>
                     <li>
                       <button
                         type="button"
                         className="gov-inline-nav-link"
-                        onClick={() => onNavigateTab('entry')}
+                        onClick={() => onNavigateTab('unified-map')}
                       >
-                        บันทึกเหตุการณ์ &amp; จับพิกัดอัตโนมัติ (เดี่ยว / หลายพื้นที่ / เฝ้าระวัง)
+                        แผนที่สรุปสถานการณ์รวม 7 จังหวัด (สำหรับการประชุม บน.56)
                       </button>
                     </li>
-                    <li>
-                      <button
-                        type="button"
-                        className="gov-inline-nav-link"
-                        onClick={() => onNavigateTab('ipb')}
-                      >
-                        แดชบอร์ด &amp; แผนที่วิเคราะห์ IPB (7 จังหวัดภาคใต้ตอนล่าง)
-                      </button>
-                    </li>
-                    <li>
-                      <button
-                        type="button"
-                        className="gov-inline-nav-link"
-                        onClick={() => onNavigateTab('map-list')}
-                      >
-                        คลังรายการเหตุการณ์ &amp; ส่งออกข้อมูล (CSV / GeoJSON / KML / Word)
-                      </button>
-                    </li>
+                    {staffUnlocked && (
+                      <>
+                        <li>
+                          <button
+                            type="button"
+                            className="gov-inline-nav-link"
+                            onClick={() => onNavigateTab('daily-log')}
+                          >
+                            บันทึกประจำวันของแผนก (ซิงก์ชีทแยก 7 หมวด)
+                          </button>
+                        </li>
+                        <li>
+                          <button
+                            type="button"
+                            className="gov-inline-nav-link"
+                            onClick={() => onNavigateTab('entry')}
+                          >
+                            บันทึกเหตุการณ์ IPB &amp; จับพิกัดอัตโนมัติ
+                          </button>
+                        </li>
+                        <li>
+                          <button
+                            type="button"
+                            className="gov-inline-nav-link"
+                            onClick={() => onNavigateTab('ipb')}
+                          >
+                            แดชบอร์ด &amp; แผนที่วิเคราะห์ IPB (7 จังหวัดภาคใต้ตอนล่าง)
+                          </button>
+                        </li>
+                        <li>
+                          <button
+                            type="button"
+                            className="gov-inline-nav-link"
+                            onClick={() => onNavigateTab('map-list')}
+                          >
+                            คลังรายการเหตุการณ์ &amp; ส่งออกข้อมูล (CSV / GeoJSON / KML / Word)
+                          </button>
+                        </li>
+                      </>
+                    )}
                   </ul>
 
-                  <h3 style={{ marginTop: '1rem' }}>3. ระบบและการเชื่อมต่อ</h3>
-                  <ul>
-                    <li>
-                      <button
-                        type="button"
-                        className="gov-inline-nav-link"
-                        onClick={() => onNavigateTab('settings')}
-                      >
-                        ตั้งค่าระบบ &amp; เชื่อมต่อ Google Apps Script (Dual-Write Sync)
-                      </button>
-                    </li>
-                  </ul>
+                  {staffUnlocked && (
+                    <>
+                      <h3 style={{ marginTop: '1rem' }}>3. ระบบและการเชื่อมต่อ</h3>
+                      <ul>
+                        <li>
+                          <button
+                            type="button"
+                            className="gov-inline-nav-link"
+                            onClick={() => onNavigateTab('settings')}
+                          >
+                            ตั้งค่าระบบ &amp; เชื่อมต่อ Google Apps Script
+                          </button>
+                        </li>
+                      </ul>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

@@ -16,6 +16,11 @@ import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS } from '../data/defaults';
 import type { AppSettings, GasFieldMapping } from '../types/incident';
 import { encodeConfigHash } from '../utils/configShare';
 import {
+  generateDailyLogGasCode,
+  pullDailyLogsFromGas,
+  testDailyLogGasConnection,
+} from '../utils/dailyLogGasSync';
+import {
   generateGasReceiverCode,
   testGasConnection,
   type GasPullResult,
@@ -25,6 +30,7 @@ interface SettingsPageProps {
   settings: AppSettings;
   onSaveSettings: (next: AppSettings) => Promise<void>;
   onPullFromGas?: (overrideSettings?: AppSettings) => Promise<GasPullResult>;
+  onPullDailyLogs?: (overrideSettings?: AppSettings) => Promise<{ ok: boolean; message: string }>;
 }
 
 const FIELD_MAPPING_LABELS: Array<{ key: keyof GasFieldMapping; label: string }> = [
@@ -46,14 +52,25 @@ const FIELD_MAPPING_LABELS: Array<{ key: keyof GasFieldMapping; label: string }>
   { key: 'createdAt', label: 'เวลาที่บันทึกเข้าระบบ' },
 ];
 
-export function SettingsPage({ settings, onSaveSettings, onPullFromGas }: SettingsPageProps) {
+export function SettingsPage({
+  settings,
+  onSaveSettings,
+  onPullFromGas,
+  onPullDailyLogs,
+}: SettingsPageProps) {
   const [draft, setDraft] = useState<AppSettings>(settings);
   const [newCategory, setNewCategory] = useState('');
   const [saveBanner, setSaveBanner] = useState('');
   const [testing, setTesting] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [testingDaily, setTestingDaily] = useState(false);
+  const [pullingDaily, setPullingDaily] = useState(false);
+  const [dailyTestResult, setDailyTestResult] = useState<{ ok: boolean; message: string } | null>(
+    null
+  );
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedDailyCode, setCopiedDailyCode] = useState(false);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
 
   useEffect(() => {
@@ -61,6 +78,37 @@ export function SettingsPage({ settings, onSaveSettings, onPullFromGas }: Settin
   }, [settings]);
 
   const generatedCode = useMemo(() => generateGasReceiverCode(draft), [draft]);
+  const generatedDailyLogCode = useMemo(() => generateDailyLogGasCode(draft), [draft]);
+
+  const handleTestDailyLog = async () => {
+    setTestingDaily(true);
+    setDailyTestResult(null);
+    try {
+      const res = await testDailyLogGasConnection(draft);
+      setDailyTestResult({ ok: res.ok, message: res.message });
+    } finally {
+      setTestingDaily(false);
+    }
+  };
+
+  const handlePullDaily = async () => {
+    setPullingDaily(true);
+    setDailyTestResult(null);
+    try {
+      const res = onPullDailyLogs
+        ? await onPullDailyLogs(draft)
+        : await pullDailyLogsFromGas(draft);
+      setDailyTestResult({ ok: res.ok, message: res.message });
+    } finally {
+      setPullingDaily(false);
+    }
+  };
+
+  const handleCopyDailyCode = async () => {
+    await navigator.clipboard.writeText(generatedDailyLogCode);
+    setCopiedDailyCode(true);
+    window.setTimeout(() => setCopiedDailyCode(false), 2000);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,6 +182,78 @@ export function SettingsPage({ settings, onSaveSettings, onPullFromGas }: Settin
       </div>
 
       <form onSubmit={handleSave} className="settings-stack">
+        {/* 0. Department Daily Log Google Sheet (7 Categories + Master Tab) */}
+        <div className="gov-card">
+          <h3 className="card-title">
+            เชื่อมต่อชีทบันทึกเหตุการณ์ประจำวันของแผนก (สร้างแท็บรวม + แยก 7 หมวดอัตโนมัติ)
+          </h3>
+          <p className="card-subtitle">
+            ใช้ Google Sheet แยกเฉพาะของ ผขว.บก.บน.56 และตรวจสอบสิทธิ์เจ้าหน้าที่ด้วย <code>STAFF_PIN</code> ใน GAS Script Properties (ลิงก์นี้ถูกใช้ดึงข้อมูลขึ้นแผนที่สรุปการประชุม บน.56 ด้วย)
+          </p>
+
+          <div className="form-group" style={{ marginTop: '0.9rem' }}>
+            <label htmlFor="daily-log-gas-url" className="form-label">
+              Web App URL (/exec) ของสคริปต์ Wing56DailyLog.gs
+            </label>
+            <div className="webhook-input-row">
+              <input
+                id="daily-log-gas-url"
+                type="url"
+                className="form-input"
+                value={draft.dailyLogGasUrl || ''}
+                onChange={(e) => setDraft({ ...draft, dailyLogGasUrl: e.target.value })}
+                placeholder="https://script.google.com/macros/s/.../exec"
+              />
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={handleTestDailyLog}
+                disabled={testingDaily || !(draft.dailyLogGasUrl || '').trim()}
+              >
+                <TestTube2 size={16} aria-hidden="true" />
+                <span>{testingDaily ? 'กำลังทดสอบ...' : 'ทดสอบชีทแผนก'}</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={handlePullDaily}
+                disabled={pullingDaily || !(draft.dailyLogGasUrl || '').trim()}
+              >
+                <CloudDownload size={16} aria-hidden="true" />
+                <span>{pullingDaily ? 'กำลังดึง...' : 'ดึงบันทึกแผนก'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="form-group" style={{ maxWidth: 420 }}>
+            <label htmlFor="daily-log-master-sheet" className="sub-label">
+              ชื่อแท็บรวมทั้งหมด (อีก 7 แท็บแยกตามหมวดจะสร้างให้อัตโนมัติ)
+            </label>
+            <input
+              id="daily-log-master-sheet"
+              type="text"
+              className="form-input"
+              value={draft.dailyLogMasterSheetName ?? 'รวมข่าวกรองประจำวัน'}
+              onChange={(e) => setDraft({ ...draft, dailyLogMasterSheetName: e.target.value })}
+            />
+          </div>
+
+          {dailyTestResult && (
+            <div
+              className={`inline-alert ${dailyTestResult.ok ? 'info' : 'danger'}`}
+              style={{ marginTop: '0.65rem' }}
+              role="alert"
+            >
+              {dailyTestResult.ok ? (
+                <CheckCircle2 size={16} aria-hidden="true" />
+              ) : (
+                <XCircle size={16} aria-hidden="true" />
+              )}
+              <span>{dailyTestResult.message}</span>
+            </div>
+          )}
+        </div>
+
         {/* 1. GAS Webhook Configuration */}
         <div className="gov-card">
           <h3 className="card-title">1. เชื่อมต่อ Google Apps Script Webhook (ระบบเดิม)</h3>
@@ -285,13 +405,13 @@ export function SettingsPage({ settings, onSaveSettings, onPullFromGas }: Settin
               type="button"
               className="btn btn-sm btn-outline"
               onClick={handleCopyShareLink}
-              disabled={!draft.gasWebhookUrl.trim()}
+              disabled={!draft.gasWebhookUrl.trim() && !(draft.dailyLogGasUrl || '').trim()}
             >
               <Share2 size={14} aria-hidden="true" />
               <span>
                 {copiedShareLink
                   ? 'คัดลอกลิงก์ตั้งค่าด่วนแล้ว!'
-                  : 'คัดลอกลิงก์ตั้งค่าด่วน (สำหรับเครื่องแผนก)'}
+                  : 'คัดลอกลิงก์ตั้งค่าด่วน (สำหรับเครื่องแผนก — ไม่รวม PIN)'}
               </span>
             </button>
             <span className="field-hint" style={{ margin: 0 }}>
@@ -523,6 +643,31 @@ export function SettingsPage({ settings, onSaveSettings, onPullFromGas }: Settin
         </div>
         <pre className="code-block">
           <code>{generatedCode}</code>
+        </pre>
+      </div>
+
+      {/* 6. Ready-to-Paste Wing56DailyLog.gs Code */}
+      <div className="gov-card" style={{ marginTop: '1.5rem' }}>
+        <div className="card-header-row">
+          <div>
+            <h3 className="card-title">
+              <Code2 size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} aria-hidden="true" />
+              โค้ด Google Apps Script สำหรับชีทบันทึกประจำวันแผนก 7 หมวด (Wing56DailyLog.gs)
+            </h3>
+            <p className="card-subtitle">
+              1) สร้าง Google Sheet ใหม่ &rarr; Extensions &rarr; Apps Script แล้ววางโค้ดนี้ |{' '}
+              2) เข้า <strong>Project Settings &rarr; Script Properties</strong> เพิ่มคีย์{' '}
+              <code>STAFF_PIN</code> | 3) กด Run <code>setupWing56DailyLogSheets()</code> |{' '}
+              4) Deploy เป็น Web App (Anyone) แล้วนำลิงก์มาใส่ด้านบน
+            </p>
+          </div>
+          <button type="button" className="btn btn-outline" onClick={handleCopyDailyCode}>
+            <ClipboardCopy size={16} aria-hidden="true" />
+            <span>{copiedDailyCode ? 'คัดลอกโค้ดแล้ว!' : 'คัดลอกโค้ด Wing56DailyLog.gs'}</span>
+          </button>
+        </div>
+        <pre className="code-block">
+          <code>{generatedDailyLogCode}</code>
         </pre>
       </div>
     </section>

@@ -1,14 +1,17 @@
 import { DEFAULT_SETTINGS } from '../data/defaults';
 import type { AppSettings, IncidentRecord, WatchAlertRecord } from '../types/incident';
+import type { DailyLogRecord } from '../types/news';
 
 const DB_NAME = 'sbp_intelligence_report_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_INCIDENTS = 'incidents';
 const STORE_SETTINGS = 'settings';
 const STORE_WATCH_ALERTS = 'watch_alerts';
+const STORE_DAILY_LOGS = 'daily_logs';
 const LS_INCIDENTS_KEY = 'sbp_incidents_fallback_v1';
 const LS_SETTINGS_KEY = 'sbp_settings_fallback_v1';
 const LS_WATCH_ALERTS_KEY = 'sbp_watch_alerts_fallback_v1';
+const LS_DAILY_LOGS_KEY = 'w56_daily_logs_fallback_v1';
 const CCTV_CATEGORY_LABEL = 'ทำลายกล้อง CCTV';
 const MIGRANT_CATEGORY_LABEL = 'แรงงานต่างด้าว/หลบหนีเข้าเมือง';
 const WATCH_CATEGORY_LABEL = 'ข่าวสารความเคลื่อนไหว/เฝ้าระวัง';
@@ -63,6 +66,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_WATCH_ALERTS)) {
         db.createObjectStore(STORE_WATCH_ALERTS, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_DAILY_LOGS)) {
+        db.createObjectStore(STORE_DAILY_LOGS, { keyPath: 'id' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -316,5 +322,90 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
     });
   } catch {
     localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings));
+  }
+}
+
+function sortDailyLogsDesc(items: DailyLogRecord[]): DailyLogRecord[] {
+  return [...items].sort((a, b) => {
+    const tA = new Date(a.occurredAt || a.createdAt).getTime();
+    const tB = new Date(b.occurredAt || b.createdAt).getTime();
+    return tB - tA;
+  });
+}
+
+export async function loadDailyLogs(): Promise<DailyLogRecord[]> {
+  try {
+    const db = await openDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_DAILY_LOGS, 'readonly');
+      const store = tx.objectStore(STORE_DAILY_LOGS);
+      const req = store.getAll();
+      req.onsuccess = () => resolve(sortDailyLogsDesc((req.result as DailyLogRecord[]) || []));
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    try {
+      const raw = localStorage.getItem(LS_DAILY_LOGS_KEY);
+      return raw ? sortDailyLogsDesc(JSON.parse(raw) as DailyLogRecord[]) : [];
+    } catch {
+      return [];
+    }
+  }
+}
+
+export async function saveDailyLog(record: DailyLogRecord): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_DAILY_LOGS, 'readwrite');
+      tx.objectStore(STORE_DAILY_LOGS).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    const current = await loadDailyLogs();
+    const next = current.filter((item) => item.id !== record.id);
+    next.unshift(record);
+    localStorage.setItem(LS_DAILY_LOGS_KEY, JSON.stringify(sortDailyLogsDesc(next)));
+  }
+}
+
+export async function saveDailyLogsBatch(records: DailyLogRecord[]): Promise<void> {
+  if (records.length === 0) return;
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_DAILY_LOGS, 'readwrite');
+      const store = tx.objectStore(STORE_DAILY_LOGS);
+      for (const r of records) {
+        store.put(r);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    const current = await loadDailyLogs();
+    const map = new Map(current.map((c) => [c.id, c]));
+    for (const r of records) map.set(r.id, r);
+    localStorage.setItem(
+      LS_DAILY_LOGS_KEY,
+      JSON.stringify(sortDailyLogsDesc(Array.from(map.values())))
+    );
+  }
+}
+
+export async function deleteDailyLog(id: string): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_DAILY_LOGS, 'readwrite');
+      tx.objectStore(STORE_DAILY_LOGS).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    const current = await loadDailyLogs();
+    const next = current.filter((item) => item.id !== id);
+    localStorage.setItem(LS_DAILY_LOGS_KEY, JSON.stringify(next));
   }
 }
