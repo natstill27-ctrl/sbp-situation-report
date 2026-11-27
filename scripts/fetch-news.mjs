@@ -7,7 +7,19 @@ const ROOT = path.resolve(__dirname, '..');
 const RULES_PATH = path.join(ROOT, 'src', 'data', 'newsRules.json');
 const OUTPUT_PATH = path.join(ROOT, 'public', 'daily-news.json');
 
-const WINDOW_HOURS = 72;
+const WINDOW_HOURS = 168;
+
+const SOUTHPEACE_ENDPOINTS = [
+  {
+    label: 'กอ.รมน.ภาค 4 สน. (ข่าวชี้แจงเหตุการณ์)',
+    url: 'https://www.southpeace.go.th/index.php?rest_route=/wp/v2/posts&categories=24&per_page=15',
+    hintCategory: 'security',
+  },
+  {
+    label: 'กอ.รมน.ภาค 4 สน. (ข่าวประชาสัมพันธ์)',
+    url: 'https://www.southpeace.go.th/index.php?rest_route=/wp/v2/posts&categories=23&categories_exclude=27,28,29,30&per_page=20',
+  },
+];
 
 const QUERIES = [
   {
@@ -24,11 +36,11 @@ const QUERIES = [
   },
   {
     hintCategory: 'narcotics',
-    q: '(ยาเสพติด OR ยาบ้า OR ไอซ์ OR ป.ป.ส. OR กัญชา OR กระท่อม OR เครือข่ายยาเสพติด) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:3d',
+    q: '(ยาเสพติด OR ยาบ้า OR ไอซ์ OR ป.ป.ส. OR กัญชา OR กระท่อม OR เครือข่ายยาเสพติด) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:7d',
   },
   {
     hintCategory: 'security',
-    q: '(ความมั่นคง OR กอ.รมน. OR ระเบิด OR ลอบยิง OR ปะทะ OR ก่อเหตุรุนแรง OR ฝ่ายความมั่นคง OR EOD OR ปิดล้อม) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:3d',
+    q: '(ความมั่นคง OR กอ.รมน. OR ระเบิด OR ลอบยิง OR ปะทะ OR ก่อเหตุรุนแรง OR ฝ่ายความมั่นคง OR EOD OR ปิดล้อม) (สงขลา OR พัทลุง OR ตรัง OR สตูล OR ปัตตานี OR ยะลา OR นราธิวาส) when:7d',
   },
 ];
 
@@ -50,7 +62,7 @@ function decodeHtmlEntities(str) {
     .replace(/&#8217;/g, '’')
     .replace(/&#8220;/g, '“')
     .replace(/&#8221;/g, '”')
-    .replace(/&#8230;/g, '…')
+    .replace(/&#8230;|&hellip;/g, '…')
     .replace(/&nbsp;/g, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
@@ -237,12 +249,52 @@ async function fetchDirectRss({ sourceName, url }) {
   });
 }
 
+async function fetchSouthpeaceOfficial({ label, url, hintCategory }) {
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} for ${label}`);
+  }
+  const posts = await res.json();
+  if (!Array.isArray(posts)) return [];
+  return posts.map((p) => {
+    const title = decodeHtmlEntities(p?.title?.rendered || '');
+    const excerpt = decodeHtmlEntities(p?.excerpt?.rendered || '')
+      .replace(/\[…\]|\[\.\.\.\]/g, '')
+      .trim();
+    const rawDate = String(p?.date_gmt || p?.date || '');
+    const isoDate = rawDate
+      ? new Date(rawDate.endsWith('Z') ? rawDate : `${rawDate}Z`).toISOString()
+      : new Date().toISOString();
+    return {
+      title,
+      summary: excerpt && excerpt !== title ? excerpt : title,
+      link: String(p?.link || '').trim(),
+      sourceName: 'กอ.รมน.ภาค 4 สน.',
+      publishedAt: isoDate,
+      ...(hintCategory ? { queryHintCategory: hintCategory } : {}),
+    };
+  });
+}
+
 async function main() {
   const rules = JSON.parse(await fs.readFile(RULES_PATH, 'utf8'));
   const dramaRegexes = rules.dramaRejectionPatterns.map((p) => new RegExp(p, 'i'));
   const tierPriority = { 'official-public': 3, 'mainstream-credible': 2, 'local-neutral': 1 };
 
   const allCandidates = [];
+  for (const spDef of SOUTHPEACE_ENDPOINTS) {
+    try {
+      const items = await fetchSouthpeaceOfficial(spDef);
+      allCandidates.push(...items);
+      console.log(`Fetched ${items.length} official items from [${spDef.label}]`);
+    } catch (err) {
+      console.warn(`Warning fetching [${spDef.label}]:`, err.message);
+    }
+  }
+
   for (const queryDef of QUERIES) {
     try {
       const items = await fetchRssQuery(queryDef);

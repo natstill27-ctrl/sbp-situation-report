@@ -1320,6 +1320,38 @@ function exportWing56NewsJson(e) {
     ];
 
     var rawItems = [];
+
+    var spEndpoints = [
+      { cat: 'security', url: 'https://www.southpeace.go.th/index.php?rest_route=/wp/v2/posts&categories=24&per_page=10' },
+      { cat: '', url: 'https://www.southpeace.go.th/index.php?rest_route=/wp/v2/posts&categories=23&categories_exclude=27,28,29,30&per_page=10' }
+    ];
+    for (var s = 0; s < spEndpoints.length; s++) {
+      try {
+        var spRes = UrlFetchApp.fetch(spEndpoints[s].url, { muteHttpExceptions: true });
+        if (spRes.getResponseCode() !== 200) continue;
+        var spPosts = JSON.parse(spRes.getContentText());
+        if (!spPosts || !spPosts.length) continue;
+        for (var p = 0; p < spPosts.length; p++) {
+          var post = spPosts[p];
+          var spTitle = decodeNewsEntities_(post.title && post.title.rendered ? post.title.rendered : '');
+          var spExcerpt = decodeNewsEntities_(post.excerpt && post.excerpt.rendered ? post.excerpt.rendered : '').replace(/\\[…\\]|\\[\\.\\.\\.\\]/g, '').trim();
+          var spRawDate = String(post.date_gmt || post.date || '');
+          var spPub = spRawDate ? new Date(spRawDate.slice(-1) === 'Z' ? spRawDate : spRawDate + 'Z').toISOString() : new Date().toISOString();
+          if (spTitle) {
+            var spItem = {
+              title: spTitle,
+              summary: spExcerpt || spTitle,
+              link: String(post.link || ''),
+              sourceName: 'กอ.รมน.ภาค 4 สน.',
+              publishedAt: spPub
+            };
+            if (spEndpoints[s].cat) spItem.queryHintCategory = spEndpoints[s].cat;
+            rawItems.push(spItem);
+          }
+        }
+      } catch (_spErr) {}
+    }
+
     for (var i = 0; i < queries.length; i++) {
       var qObj = queries[i];
       var url = 'https://news.google.com/rss/search?q=' + encodeURIComponent(qObj.q) + '&hl=th&gl=TH&ceid=TH:th';

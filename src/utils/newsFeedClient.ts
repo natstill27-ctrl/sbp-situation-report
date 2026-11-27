@@ -127,10 +127,10 @@ export async function fetchDailyNewsFeed(
 
         if (parsed.ok !== false) {
           if (Array.isArray(parsed.rawItems) && parsed.rawItems.length > 0) {
-            const curated = curateRawNewsItems(parsed.rawItems, { windowHours: 72 });
+            const curated = curateRawNewsItems(parsed.rawItems, { windowHours: 168 });
             const liveFeed: DailyNewsFeed = {
               generatedAt: parsed.generatedAt || new Date().toISOString(),
-              windowHours: parsed.windowHours || 72,
+              windowHours: parsed.windowHours || 168,
               items: curated.items,
               stats: curated.stats,
               sourceMode: 'live-gas',

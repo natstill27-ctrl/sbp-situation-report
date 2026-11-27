@@ -63,8 +63,9 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
   const [briefView, setBriefView] = useState<'5w1h' | 'compact'>('5w1h');
   const [copiedNewsId, setCopiedNewsId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<'all' | NewsCategoryId>('all');
+  const [isocOnly, setIsocOnly] = useState(false);
   const [provinceFilter, setProvinceFilter] = useState('');
-  const [freshnessHours, setFreshnessHours] = useState<24 | 48 | 72>(72);
+  const [freshnessHours, setFreshnessHours] = useState<24 | 48 | 72 | 168>(72);
   const [tierFilter, setTierFilter] = useState<'' | SourceTier>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showTransparency, setShowTransparency] = useState(false);
@@ -131,10 +132,21 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
     return counts;
   }, [itemsInWindow]);
 
+  const isocCount = useMemo(
+    () =>
+      itemsInWindow.filter(
+        (item) => item.sourceName.includes('กอ.รมน') || item.sourceName.includes('southpeace')
+      ).length,
+    [itemsInWindow]
+  );
+
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return itemsInWindow.filter((item) => {
       if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
+      if (isocOnly && !item.sourceName.includes('กอ.รมน') && !item.sourceName.includes('southpeace')) {
+        return false;
+      }
       if (provinceFilter && !item.provinces.includes(provinceFilter)) return false;
       if (tierFilter && item.sourceTier !== tierFilter) return false;
       if (q) {
@@ -145,7 +157,7 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
       }
       return true;
     });
-  }, [itemsInWindow, categoryFilter, provinceFilter, tierFilter, searchQuery]);
+  }, [itemsInWindow, categoryFilter, isocOnly, provinceFilter, tierFilter, searchQuery]);
 
   const handleImport = (item: CuratedNewsItem) => {
     const matchedProvince = item.provinces.find((p) => provinces.includes(p)) || '';
@@ -275,6 +287,22 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
               <span className="news-pill-count">{categoryCounts[cat.id]}</span>
             </button>
           ))}
+          <button
+            type="button"
+            className={`news-cat-pill ${isocOnly ? 'active' : ''}`}
+            aria-pressed={isocOnly}
+            onClick={() => {
+              const next = !isocOnly;
+              setIsocOnly(next);
+              if (next && freshnessHours < 168) {
+                setFreshnessHours(168);
+              }
+            }}
+            title="กรองเฉพาะข่าวทางการจากศูนย์ประชาสัมพันธ์ กอ.รมน.ภาค 4 สน. (southpeace.go.th)"
+          >
+            <span>เฉพาะ กอ.รมน.ภาค 4 สน.</span>
+            <span className="news-pill-count">{isocCount}</span>
+          </button>
         </div>
 
         <div className="news-filter-controls">
@@ -323,11 +351,12 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
               id="news-freshness-filter"
               className="form-select"
               value={freshnessHours}
-              onChange={(e) => setFreshnessHours(Number(e.target.value) as 24 | 48 | 72)}
+              onChange={(e) => setFreshnessHours(Number(e.target.value) as 24 | 48 | 72 | 168)}
             >
               <option value={24}>24 ชั่วโมงล่าสุด (วันนี้)</option>
               <option value={48}>48 ชั่วโมงล่าสุด</option>
               <option value={72}>3 วันล่าสุด (72 ชม.)</option>
+              <option value={168}>7 วันล่าสุด (รวมข่าวชี้แจง กอ.รมน.)</option>
             </select>
           </div>
 
@@ -368,12 +397,13 @@ export function NewsHubPage({ settings, onImportToIncident }: NewsHubPageProps) 
           <p>
             ลองขยายกรอบเวลาเป็น 72 ชม. หรือเลือกดูทุกจังหวัด / ทุกหมวดข่าว (ระบบคัดกรองเฉพาะข่าวที่มีเนื้อหาสาระจากสื่อที่ผ่านเกณฑ์เท่านั้น)
           </p>
-          {(categoryFilter !== 'all' || provinceFilter || tierFilter || searchQuery || freshnessHours !== 72) && (
+          {(categoryFilter !== 'all' || isocOnly || provinceFilter || tierFilter || searchQuery || freshnessHours !== 72) && (
             <button
               type="button"
               className="btn btn-outline"
               onClick={() => {
                 setCategoryFilter('all');
+                setIsocOnly(false);
                 setProvinceFilter('');
                 setTierFilter('');
                 setSearchQuery('');

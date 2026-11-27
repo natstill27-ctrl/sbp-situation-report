@@ -43,6 +43,13 @@ describe('5W1H Intelligence Brief Formatter (NIA Style)', () => {
         'security'
       )
     ).toBe('กอ.รมน.สตูล / ชุดพญาเสือ / บก.ปทส.');
+
+    expect(
+      extractWhoActors(
+        'รองโฆษก กอ.รมน.ภาค 4 สน. แถลงผลการปฏิบัติของ ฉก.อโณทัย ในพื้นที่',
+        'security'
+      )
+    ).toBe('รองโฆษก กอ.รมน.ภาค 4 สน. / หน่วยเฉพาะกิจอโณทัย');
   });
 
   it('builds a complete 5-line 5W1H brief differentiating inner AOR vs border AOR', () => {

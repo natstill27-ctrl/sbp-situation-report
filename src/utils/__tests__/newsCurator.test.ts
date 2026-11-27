@@ -43,12 +43,20 @@ describe('News Source & Editorial Quality Gate', () => {
     }
   });
 
-  it('rejects village drama, superstition/lottery, celebrity, and promo items', () => {
+  it('rejects village drama, superstition/lottery, celebrity, procurement, and routine PR visits', () => {
     expect(isTabloidOrDramaNews('ชาวเน็ตจวกยับ ดราม่าโซเชียลผัวเมียทะเลาะหน้าตลาดหาดใหญ่')).toBe(
       true
     );
     expect(isTabloidOrDramaNews('แห่ส่องเลขเด็ดงวดนี้ ต้นตะเคียนคู่ จ.พัทลุง')).toBe(true);
     expect(isTabloidOrDramaNews('กู้ภัยจับงูเหลือมยักษ์เข้าบ้านชาวบ้าน จ.ตรัง')).toBe(true);
+    expect(
+      isTabloidOrDramaNews(
+        'ประกาศ กองอำนวยการรักษาความมั่นคงภายในภาค 4 ส่วนหน้า เรื่อง ประกาศผู้ชนะการเสนอราคา ซื้อน้ำมันเชื้อเพลิง'
+      )
+    ).toBe(true);
+    expect(
+      isTabloidOrDramaNews('ฉก.ยะลา ลงพื้นที่เยี่ยมเยียนผู้ป่วยติดเตียงและกลุ่มเปราะบาง')
+    ).toBe(true);
     expect(
       isTabloidOrDramaNews('กอ.รมน.ภาค 4 สน. แถลงผลการตรวจยึดอาวุธและขยายผลด้านความมั่นคงในพื้นที่')
     ).toBe(false);
